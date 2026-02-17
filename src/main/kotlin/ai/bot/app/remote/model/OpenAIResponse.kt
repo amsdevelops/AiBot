@@ -1,0 +1,40 @@
+package ai.bot.app.remote.model
+
+import com.google.gson.annotations.SerializedName
+
+data class OpenAIResponse(
+    @SerializedName("id") val id: String,
+    @SerializedName("object") val obj: String,
+    @SerializedName("created_at") val createdAt: Long,
+    @SerializedName("status") val status: String,
+    @SerializedName("background") val background: Boolean,
+    @SerializedName("billing") val billing: Billing,
+    @SerializedName("completed_at") val completedAt: Long,
+    @SerializedName("error") val error: Any?,
+    @SerializedName("frequency_penalty") val frequencyPenalty: Double,
+    @SerializedName("incomplete_details") val incompleteDetails: Any?,
+    @SerializedName("instructions") val instructions: Any?,
+    @SerializedName("max_output_tokens") val maxOutputTokens: Any?,
+    @SerializedName("max_tool_calls") val maxToolCalls: Any?,
+    @SerializedName("model") val model: String,
+    @SerializedName("output") val output: List<Output>,
+    @SerializedName("parallel_tool_calls") val parallelToolCalls: Boolean,
+    @SerializedName("presence_penalty") val presencePenalty: Double,
+    @SerializedName("previous_response_id") val previousResponseId: Any?,
+    @SerializedName("prompt_cache_key") val promptCacheKey: Any?,
+    @SerializedName("prompt_cache_retention") val promptCacheRetention: Any?,
+    @SerializedName("reasoning") val reasoning: Reasoning,
+    @SerializedName("safety_identifier") val safetyIdentifier: String,
+    @SerializedName("service_tier") val serviceTier: String,
+    @SerializedName("store") val store: Boolean,
+    @SerializedName("temperature") val temperature: Double,
+    @SerializedName("text") val text: Text,
+    @SerializedName("tool_choice") val toolChoice: String,
+    @SerializedName("tools") val tools: List<Any?>,
+    @SerializedName("top_logprobs") val topLogprobs: Int,
+    @SerializedName("top_p") val topP: Double,
+    @SerializedName("truncation") val truncation: String,
+    @SerializedName("usage") val usage: Usage,
+    @SerializedName("user") val user: Any?,
+    @SerializedName("metadata") val metadata: Map<String, Any?>
+)

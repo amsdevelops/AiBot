@@ -9,11 +9,20 @@ import kotlinx.coroutines.withContext
 
 object GetOpenAIUseResponseCase {
 
-    suspend operator fun invoke(input: String): Result<OpenAIResponse> {
+    suspend operator fun invoke(
+        input: String,
+        previousResponseId: String? = null,
+        isStoreEnabled: Boolean = false
+    ): Result<OpenAIResponse> {
         return withContext(Dispatchers.IO) {
             val apiKey = GetLocalPropertiesUseCase("AI_KEY")
                 ?: return@withContext Result.failure(Exception("API key not found"))
-            val request = OpenAIRequest("gpt-5.2", input)
+            val request = OpenAIRequest(
+                model = "gpt-4o",
+                input = input,
+                previousResponseId = previousResponseId,
+                store = isStoreEnabled,
+            )
 
             try {
                 val response = RetrofitClient.api.getResponse("Bearer $apiKey", request)

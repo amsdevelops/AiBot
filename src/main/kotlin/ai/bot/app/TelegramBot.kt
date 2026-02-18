@@ -12,6 +12,9 @@ import org.telegram.telegrambots.meta.exceptions.TelegramApiException
 
 class TelegramBot(botToken: String) : TelegramLongPollingBot(botToken) {
 
+    private var previousResponseId: String? = null
+    private var isStoreEnabled: Boolean = false
+
     @OptIn(DelicateCoroutinesApi::class)
     override fun onUpdateReceived(update: Update?) {
         if (update == null) return
@@ -20,11 +23,22 @@ class TelegramBot(botToken: String) : TelegramLongPollingBot(botToken) {
             val chatId = message.chatId
             val text = message.text
 
-            GlobalScope.launch {
-                val response = GetOpenAIUseResponseCase(text)
-                when {
-                    response.isSuccess -> sendTextMessage(chatId, getContent(response))
-                    response.isFailure -> sendTextMessage(chatId, response.exceptionOrNull()?.message ?: "")
+            when (text) {
+                "/enablestore" -> isStoreEnabled = true
+                "/disablestore" -> isStoreEnabled = false
+                else -> {
+                    GlobalScope.launch {
+                        val response = GetOpenAIUseResponseCase(
+                            input = text,
+                            previousResponseId = if (isStoreEnabled) previousResponseId else null,
+                            isStoreEnabled = isStoreEnabled,
+                        )
+                        if (isStoreEnabled) previousResponseId = response.getOrNull()?.id
+                        when {
+                            response.isSuccess -> sendTextMessage(chatId, getContent(response))
+                            response.isFailure -> sendTextMessage(chatId, response.exceptionOrNull()?.message ?: "")
+                        }
+                    }
                 }
             }
         }

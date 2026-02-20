@@ -7,12 +7,13 @@ import ai.bot.app.usecase.GetLocalPropertiesUseCase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-object GetOpenAIUseResponseCase {
+object GetOpenAIResponseUseCase {
 
     suspend operator fun invoke(
         input: String,
         previousResponseId: String? = null,
-        isStoreEnabled: Boolean = false
+        isStoreEnabled: Boolean = false,
+        temperature: Double,
     ): Result<OpenAIResponse> {
         return withContext(Dispatchers.IO) {
             val apiKey = GetLocalPropertiesUseCase("AI_KEY")
@@ -22,6 +23,7 @@ object GetOpenAIUseResponseCase {
                 input = input,
                 previousResponseId = previousResponseId,
                 store = isStoreEnabled,
+                temperature = temperature,
             )
 
             try {

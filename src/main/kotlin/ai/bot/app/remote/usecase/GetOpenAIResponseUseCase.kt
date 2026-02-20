@@ -14,12 +14,13 @@ object GetOpenAIResponseUseCase {
         previousResponseId: String? = null,
         isStoreEnabled: Boolean = false,
         temperature: Double,
+        model: String = "gpt-4o" // Модель по умолчанию
     ): Result<OpenAIResponse> {
         return withContext(Dispatchers.IO) {
             val apiKey = GetLocalPropertiesUseCase("AI_KEY")
                 ?: return@withContext Result.failure(Exception("API key not found"))
             val request = OpenAIRequest(
-                model = "gpt-4o",
+                model = model,
                 input = input,
                 previousResponseId = previousResponseId,
                 store = isStoreEnabled,

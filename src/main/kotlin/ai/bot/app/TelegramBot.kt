@@ -2,6 +2,8 @@ package ai.bot.app
 
 import ai.bot.app.remote.model.OpenAIResponse
 import ai.bot.app.remote.usecase.GetOpenAIResponseUseCase
+import ai.bot.app.usecase.CalculateCostUseCase
+import ai.bot.app.usecase.CalculateResponseTimeUseCase
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
@@ -18,6 +20,7 @@ class TelegramBot(botToken: String) : TelegramLongPollingBot(botToken) {
     private var previousResponseId: String? = null
     private var isStoreEnabled: Boolean = false
     private var temperature: Double = 1.0
+    private var selectedModel: String = "gpt-4o"
 
     @OptIn(DelicateCoroutinesApi::class)
     override fun onUpdateReceived(update: Update?) {
@@ -28,10 +31,19 @@ class TelegramBot(botToken: String) : TelegramLongPollingBot(botToken) {
             val text = message.text
 
             when (text) {
-                "/enablestore" -> isStoreEnabled = true
-                "/disablestore" -> isStoreEnabled = false
+                "/store" -> sendStoreControlMessage(chatId)
                 "/temperature" -> sendChatMessage(chatId)
-                "0.7", "1.0", "1.2" -> handleTemperatureButton(chatId,text)
+                "/model" -> sendModelSelectionMessage(chatId)
+                "Включить хранение" -> {
+                    isStoreEnabled = true
+                    sendTextMessage(chatId, "Хранение включено")
+                }
+                "Выключить хранение" -> {
+                    isStoreEnabled = false
+                    sendTextMessage(chatId, "Хранение выключено")
+                }
+                "0.7", "1.0", "1.2" -> handleTemperatureButton(chatId, text)
+                "gpt-3.5-turbo", "gpt-4o", "gpt-5.2" -> handleModelSelection(chatId, text)
                 else -> {
                     GlobalScope.launch {
                         val response = GetOpenAIResponseUseCase(
@@ -39,6 +51,7 @@ class TelegramBot(botToken: String) : TelegramLongPollingBot(botToken) {
                             previousResponseId = if (isStoreEnabled) previousResponseId else null,
                             isStoreEnabled = isStoreEnabled,
                             temperature = temperature,
+                            model = selectedModel // Используем выбранную модель
                         )
                         if (isStoreEnabled) previousResponseId = response.getOrNull()?.id
                         when {
@@ -51,8 +64,20 @@ class TelegramBot(botToken: String) : TelegramLongPollingBot(botToken) {
         }
     }
 
-    private fun getContent(response: Result<OpenAIResponse>): String =
-        response.getOrNull()?.output?.first { it.role == "assistant" }?.content?.first()?.text.toString()
+    private fun getContent(response: Result<OpenAIResponse>): String {
+        val responseValue = response.getOrNull() ?: return ""
+        val usageInfo = "Usage: ${responseValue.usage.inputTokens} input tokens, ${responseValue.usage.outputTokens} output tokens"
+        val (inputCost, outputCost) = CalculateCostUseCase(responseValue.usage, selectedModel)
+        val inputCostInfo = "Input cost: ${String.format("%.4f", inputCost)} RUB"
+        val outputCostInfo = "Output cost: ${String.format("%.4f", outputCost)} RUB"
+        val totalCostInfo = "Total cost: ${String.format("%.4f", inputCost + outputCost)} RUB"
+        val responseTime = CalculateResponseTimeUseCase(responseValue)
+        val responseTimeInfo = "Response time: $responseTime"
+        val modelInfo = "Model: $selectedModel"
+        val content = responseValue.output.firstOrNull { it.role == "assistant" }?.content?.firstOrNull()?.text ?: ""
+
+        return "$modelInfo\n\n$usageInfo\n\n$inputCostInfo\n$outputCostInfo\n\n$totalCostInfo\n\n$responseTimeInfo\n\n$content"
+    }
 
     private fun sendTextMessage(chatId: Long, text: String) {
         val message = SendMessage().apply {
@@ -88,6 +113,49 @@ class TelegramBot(botToken: String) : TelegramLongPollingBot(botToken) {
         }
     }
 
+    private fun sendModelSelectionMessage(chatId: Long) {
+        val message = SendMessage().apply {
+            this.chatId = chatId.toString()
+            this.text = "Выберите модель:"
+            this.replyMarkup = ReplyKeyboardMarkup().apply {
+                keyboard = listOf(
+                    KeyboardRow().apply {
+                        add(KeyboardButton("gpt-3.5-turbo"))
+                        add(KeyboardButton("gpt-4o"))
+                        add(KeyboardButton("gpt-5.2"))
+                    }
+                )
+            }
+        }
+
+        try {
+            execute(message)
+        } catch (e: TelegramApiException) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun sendStoreControlMessage(chatId: Long) {
+        val message = SendMessage().apply {
+            this.chatId = chatId.toString()
+            this.text = "Управление хранением:"
+            this.replyMarkup = ReplyKeyboardMarkup().apply {
+                keyboard = listOf(
+                    KeyboardRow().apply {
+                        add(KeyboardButton("Включить хранение"))
+                        add(KeyboardButton("Выключить хранение"))
+                    }
+                )
+            }
+        }
+
+        try {
+            execute(message)
+        } catch (e: TelegramApiException) {
+            e.printStackTrace()
+        }
+    }
+
     private fun handleTemperatureButton(chatId: Long, text: String) {
         when (text) {
             "0.7" -> {
@@ -104,5 +172,11 @@ class TelegramBot(botToken: String) : TelegramLongPollingBot(botToken) {
             }
         }
     }
+
+    private fun handleModelSelection(chatId: Long, text: String) {
+        selectedModel = text
+        sendTextMessage(chatId, "Model selected: $selectedModel")
+    }
+
     override fun getBotUsername(): String = "aibot"
 }

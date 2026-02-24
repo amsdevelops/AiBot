@@ -28,4 +28,8 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.okhttp.logging.interceptor)
     implementation(libs.kotlin.coroutines)
+
+    implementation(libs.ktormCore)
+    implementation(libs.ktormSupport)
+    implementation(libs.mySqlConnector)
 }

@@ -1,35 +1,30 @@
 package ai.bot.app.data.repository
 
-class ResponsesRepository {
-    private val stringList = mutableListOf<String>()
-    
-    fun add(string: String) {
-        stringList.add(string)
+import ai.bot.app.data.db.DbResponse
+import org.ktorm.database.Database
+import org.ktorm.dsl.deleteAll
+import org.ktorm.dsl.insert
+import org.ktorm.entity.map
+import org.ktorm.entity.sequenceOf
+import java.time.Instant
+
+class ResponsesRepository(
+    private val database: Database
+) {
+    private val responsesTable = DbResponse
+
+    fun add(content: String) {
+        database.insert(responsesTable) {
+            set(responsesTable.content, content)
+            set(responsesTable.createdAt, Instant.now())
+        }
     }
 
-    fun remove(index: Int) {
-        if (index in stringList.indices) {
-            stringList.removeAt(index)
-        }
+    fun getAll(): String {
+        return database.sequenceOf(responsesTable).map { it.content }.joinToString()
     }
-    
-    fun get(index: Int): String? {
-        return if (index in stringList.indices) {
-            stringList[index]
-        } else {
-            null
-        }
-    }
-    
-    fun getAll(): List<String> {
-        return stringList.toList()
-    }
-    
+
     fun clear() {
-        stringList.clear()
-    }
-    
-    fun size(): Int {
-        return stringList.size
+        database.deleteAll(responsesTable)
     }
 }

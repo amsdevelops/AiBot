@@ -2,20 +2,32 @@ package ai.bot.app
 
 import ai.bot.app.remote.model.OpenAIResponse
 import ai.bot.app.remote.usecase.GetOpenAIResponseUseCase
+import ai.bot.app.usecase.AddSavedResponsesToRequestUseCase
 import ai.bot.app.usecase.CalculateCostUseCase
 import ai.bot.app.usecase.CalculateResponseTimeUseCase
+import ai.bot.app.usecase.ClearResponsesRepositoryUseCase
+import ai.bot.app.usecase.RemoveLastResponseUseCase
+import ai.bot.app.usecase.SaveResponseTextUseCase
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
 import org.telegram.telegrambots.bots.TelegramLongPollingBot
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage
 import org.telegram.telegrambots.meta.api.objects.Update
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyKeyboardMarkup
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.KeyboardButton
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.KeyboardRow
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException
 
-class TelegramBot(botToken: String) : TelegramLongPollingBot(botToken) {
+class TelegramBot(
+    private val saveResponseTextUseCase: SaveResponseTextUseCase,
+    private val addResponsesToRequestUseCase: AddSavedResponsesToRequestUseCase,
+    private val clearResponsesRepositoryUseCase: ClearResponsesRepositoryUseCase,
+    private val removeLastResponseUseCase: RemoveLastResponseUseCase,
+    botToken: String,
+) : TelegramLongPollingBot(botToken) {
 
     private var previousResponseId: String? = null
     private var isStoreEnabled: Boolean = false
@@ -31,34 +43,57 @@ class TelegramBot(botToken: String) : TelegramLongPollingBot(botToken) {
             val text = message.text
 
             when (text) {
+                "/clear" -> sendClearRepositoryMessage(chatId)
                 "/store" -> sendStoreControlMessage(chatId)
                 "/temperature" -> sendChatMessage(chatId)
                 "/model" -> sendModelSelectionMessage(chatId)
                 "Включить хранение" -> {
                     isStoreEnabled = true
-                    sendTextMessage(chatId, "Хранение включено")
+                    sendPlainTextMessage(chatId, "Хранение включено")
                 }
                 "Выключить хранение" -> {
                     isStoreEnabled = false
-                    sendTextMessage(chatId, "Хранение выключено")
+                    sendPlainTextMessage(chatId, "Хранение выключено")
                 }
                 "0.7", "1.0", "1.2" -> handleTemperatureButton(chatId, text)
                 "gpt-3.5-turbo", "gpt-4o", "gpt-5.2" -> handleModelSelection(chatId, text)
+                "Да, очистить" -> {
+                    clearResponsesRepositoryUseCase()
+                    sendPlainTextMessage(chatId, "Чат очищен")
+                }
+                "Отмена" -> {
+                    sendPlainTextMessage(chatId, "Очистка отменена")
+                }
                 else -> {
                     GlobalScope.launch {
                         val response = GetOpenAIResponseUseCase(
-                            input = text,
+                            input = addResponsesToRequestUseCase(text),
                             previousResponseId = if (isStoreEnabled) previousResponseId else null,
                             isStoreEnabled = isStoreEnabled,
                             temperature = temperature,
                             model = selectedModel // Используем выбранную модель
                         )
+                        response.getOrNull()?.let { saveResponseTextUseCase(it, text) }
                         if (isStoreEnabled) previousResponseId = response.getOrNull()?.id
                         when {
                             response.isSuccess -> sendTextMessage(chatId, getContent(response))
-                            response.isFailure -> sendTextMessage(chatId, response.exceptionOrNull()?.message ?: "")
+                            response.isFailure -> sendPlainTextMessage(chatId, response.exceptionOrNull()?.message ?: "")
                         }
                     }
+                }
+            }
+        } else if (update.hasCallbackQuery()) {
+            val callbackQuery = update.callbackQuery
+            val callbackData = callbackQuery.data
+            val chatId = callbackQuery.message.chatId
+
+            when (callbackData) {
+                "like" -> {
+                    sendPlainTextMessage(chatId, "Спасибо за лайк!")
+                }
+                "dislike" -> {
+                    removeLastResponseUseCase()
+                    sendPlainTextMessage(chatId, "Спасибо за обратную связь!")
                 }
             }
         }
@@ -83,6 +118,14 @@ class TelegramBot(botToken: String) : TelegramLongPollingBot(botToken) {
         val message = SendMessage().apply {
             this.chatId = chatId.toString()
             this.text = text
+            this.replyMarkup = InlineKeyboardMarkup().apply {
+                keyboard = listOf(
+                    listOf(
+                        InlineKeyboardButton("👍").also { it.callbackData = "like" },
+                        InlineKeyboardButton("👎").also { it.callbackData = "dislike" }
+                    )
+                )
+            }
         }
 
         try {
@@ -91,6 +134,20 @@ class TelegramBot(botToken: String) : TelegramLongPollingBot(botToken) {
             e.printStackTrace()
         }
     }
+
+    private fun sendPlainTextMessage(chatId: Long, text: String) {
+        val message = SendMessage().apply {
+            this.chatId = chatId.toString()
+            this.text = text
+        }
+
+        try {
+            execute(message)
+        } catch (e: TelegramApiException) {
+            e.printStackTrace()
+        }
+    }
+
     private fun sendChatMessage(chatId: Long) {
         val message = SendMessage().apply {
             this.chatId = chatId.toString()
@@ -156,26 +213,47 @@ class TelegramBot(botToken: String) : TelegramLongPollingBot(botToken) {
         }
     }
 
+    private fun sendClearRepositoryMessage(chatId: Long) {
+        val message = SendMessage().apply {
+            this.chatId = chatId.toString()
+            this.text = "Очистить чат?"
+            this.replyMarkup = ReplyKeyboardMarkup().apply {
+                keyboard = listOf(
+                    KeyboardRow().apply {
+                        add(KeyboardButton("Да, очистить"))
+                        add(KeyboardButton("Отмена"))
+                    }
+                )
+            }
+        }
+
+        try {
+            execute(message)
+        } catch (e: TelegramApiException) {
+            e.printStackTrace()
+        }
+    }
+
     private fun handleTemperatureButton(chatId: Long, text: String) {
         when (text) {
             "0.7" -> {
                 temperature = 0.7
-                sendTextMessage(chatId, "Temperature set to 0.7")
+                sendPlainTextMessage(chatId, "Temperature set to 0.7")
             }
             "1.0" -> {
                 temperature = 1.0
-                sendTextMessage(chatId, "Temperature set to 1.0")
+                sendPlainTextMessage(chatId, "Temperature set to 1.0")
             }
             "1.2" -> {
                 temperature = 1.2
-                sendTextMessage(chatId, "Temperature set to 1.2")
+                sendPlainTextMessage(chatId, "Temperature set to 1.2")
             }
         }
     }
 
     private fun handleModelSelection(chatId: Long, text: String) {
         selectedModel = text
-        sendTextMessage(chatId, "Model selected: $selectedModel")
+        sendPlainTextMessage(chatId, "Model selected: $selectedModel")
     }
 
     override fun getBotUsername(): String = "aibot"

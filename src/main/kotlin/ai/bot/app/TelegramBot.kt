@@ -114,24 +114,44 @@ class TelegramBot(
     }
 
     private fun sendTextMessage(chatId: Long, text: String) {
-        val message = SendMessage().apply {
-            this.chatId = chatId.toString()
-            this.text = text
-            this.replyMarkup = InlineKeyboardMarkup().apply {
-                keyboard = listOf(
-                    listOf(
-                        InlineKeyboardButton("👍").also { it.callbackData = "like" },
-                        InlineKeyboardButton("👎").also { it.callbackData = "dislike" }
-                    )
-                )
+        val messages = splitText(text, 4096)
+        messages.forEachIndexed { index, messageText ->
+            val message = SendMessage().apply {
+                this.chatId = chatId.toString()
+                this.text = messageText
+                // Добавим кнопки только к последнему сообщению
+                if (index == messages.size - 1) {
+                    this.replyMarkup = InlineKeyboardMarkup().apply {
+                        keyboard = listOf(
+                            listOf(
+                                InlineKeyboardButton("👍").also { it.callbackData = "like" },
+                                InlineKeyboardButton("👎").also { it.callbackData = "dislike" }
+                            )
+                        )
+                    }
+                }
+            }
+
+            try {
+                execute(message)
+            } catch (e: TelegramApiException) {
+                e.printStackTrace()
             }
         }
+    }
 
-        try {
-            execute(message)
-        } catch (e: TelegramApiException) {
-            e.printStackTrace()
+    private fun splitText(text: String, chunkSize: Int): List<String> {
+        if (text.length <= chunkSize) {
+            return listOf(text)
         }
+        val chunks = mutableListOf<String>()
+        var startIndex = 0
+        while (startIndex < text.length) {
+            val endIndex = minOf(startIndex + chunkSize, text.length)
+            chunks.add(text.substring(startIndex, endIndex))
+            startIndex = endIndex
+        }
+        return chunks
     }
 
     private fun sendPlainTextMessage(chatId: Long, text: String) {

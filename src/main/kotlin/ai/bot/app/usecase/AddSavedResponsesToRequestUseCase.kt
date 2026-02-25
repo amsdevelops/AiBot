@@ -8,8 +8,7 @@ class AddSavedResponsesToRequestUseCase(
     operator fun invoke(input: String): String {
         val savedResponses = repository.getAll()
         return if (savedResponses.isNotEmpty()) {
-            val combinedResponses = savedResponses.joinToString("\n\n") { "Response: $it" }
-            "$combinedResponses\n\n$input"
+            "$savedResponses\n\n$input"
         } else {
             input
         }

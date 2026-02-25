@@ -6,7 +6,6 @@ import ai.bot.app.usecase.AddSavedResponsesToRequestUseCase
 import ai.bot.app.usecase.CalculateCostUseCase
 import ai.bot.app.usecase.CalculateResponseTimeUseCase
 import ai.bot.app.usecase.ClearResponsesRepositoryUseCase
-import ai.bot.app.usecase.RemoveLastResponseUseCase
 import ai.bot.app.usecase.SaveResponseTextUseCase
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.GlobalScope
@@ -25,7 +24,6 @@ class TelegramBot(
     private val saveResponseTextUseCase: SaveResponseTextUseCase,
     private val addResponsesToRequestUseCase: AddSavedResponsesToRequestUseCase,
     private val clearResponsesRepositoryUseCase: ClearResponsesRepositoryUseCase,
-    private val removeLastResponseUseCase: RemoveLastResponseUseCase,
     botToken: String,
 ) : TelegramLongPollingBot(botToken) {
 
@@ -58,7 +56,9 @@ class TelegramBot(
                 "0.7", "1.0", "1.2" -> handleTemperatureButton(chatId, text)
                 "gpt-3.5-turbo", "gpt-4o", "gpt-5.2" -> handleModelSelection(chatId, text)
                 "Да, очистить" -> {
-                    clearResponsesRepositoryUseCase()
+                    GlobalScope.launch {
+                        clearResponsesRepositoryUseCase()
+                    }
                     sendPlainTextMessage(chatId, "Чат очищен")
                 }
                 "Отмена" -> {
@@ -92,7 +92,6 @@ class TelegramBot(
                     sendPlainTextMessage(chatId, "Спасибо за лайк!")
                 }
                 "dislike" -> {
-                    removeLastResponseUseCase()
                     sendPlainTextMessage(chatId, "Спасибо за обратную связь!")
                 }
             }

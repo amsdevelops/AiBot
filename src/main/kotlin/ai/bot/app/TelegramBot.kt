@@ -41,7 +41,10 @@ class TelegramBot(
             val text = message.text
 
             when (text) {
-                "/clear" -> sendClearRepositoryMessage(chatId)
+                "/clear" -> {
+                    GlobalScope.launch { clearResponsesRepositoryUseCase() }
+                    sendPlainTextMessage(chatId, "Чат очищен")
+                }
                 "/store" -> sendStoreControlMessage(chatId)
                 "/temperature" -> sendChatMessage(chatId)
                 "/model" -> sendModelSelectionMessage(chatId)
@@ -55,15 +58,6 @@ class TelegramBot(
                 }
                 "0.7", "1.0", "1.2" -> handleTemperatureButton(chatId, text)
                 "gpt-3.5-turbo", "gpt-4o", "gpt-5.2" -> handleModelSelection(chatId, text)
-                "Да, очистить" -> {
-                    GlobalScope.launch {
-                        clearResponsesRepositoryUseCase()
-                    }
-                    sendPlainTextMessage(chatId, "Чат очищен")
-                }
-                "Отмена" -> {
-                    sendPlainTextMessage(chatId, "Очистка отменена")
-                }
                 else -> {
                     GlobalScope.launch {
                         val response = GetOpenAIResponseUseCase(
@@ -220,27 +214,6 @@ class TelegramBot(
                     KeyboardRow().apply {
                         add(KeyboardButton("Включить хранение"))
                         add(KeyboardButton("Выключить хранение"))
-                    }
-                )
-            }
-        }
-
-        try {
-            execute(message)
-        } catch (e: TelegramApiException) {
-            e.printStackTrace()
-        }
-    }
-
-    private fun sendClearRepositoryMessage(chatId: Long) {
-        val message = SendMessage().apply {
-            this.chatId = chatId.toString()
-            this.text = "Очистить чат?"
-            this.replyMarkup = ReplyKeyboardMarkup().apply {
-                keyboard = listOf(
-                    KeyboardRow().apply {
-                        add(KeyboardButton("Да, очистить"))
-                        add(KeyboardButton("Отмена"))
                     }
                 )
             }

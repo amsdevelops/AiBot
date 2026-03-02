@@ -4,6 +4,8 @@ import ai.bot.app.menu.StrategyMenu
 import ai.bot.app.remote.model.OpenAIResponse
 import ai.bot.app.remote.usecase.GetOpenAIResponseUseCase
 import ai.bot.app.usecase.AddKeyDataToRequestUseCase
+import ai.bot.app.usecase.AddPersonalizedDataToRequestUseCase
+import ai.bot.app.usecase.AddPersonalizedDataUseCase
 import ai.bot.app.usecase.CalculateCostUseCase
 import ai.bot.app.usecase.CalculateResponseTimeUseCase
 import ai.bot.app.usecase.ClearResponsesRepositoryUseCase
@@ -37,6 +39,8 @@ class TelegramBot(
     private val saveMessageBranchingUseCase: SaveMessageBranchingUseCase,
     private val addKeyDataToRequestUseCase: AddKeyDataToRequestUseCase,
     private val saveKeyDataFromResponseUseCase: SaveKeyDataFromResponseUseCase,
+    private val addPersonalizedDataUseCase: AddPersonalizedDataUseCase,
+    private val addPersonalizedDataToRequestUseCase: AddPersonalizedDataToRequestUseCase,
     botToken: String,
 ) : TelegramLongPollingBot(botToken) {
 
@@ -46,6 +50,7 @@ class TelegramBot(
     private var temperature: Double = 1.0
     private var selectedModel: String = "gpt-4o"
     private var currentStrategy: String? = null
+    private var isWaitingForPersonalizedData: Boolean = false
 
     @OptIn(DelicateCoroutinesApi::class)
     override fun onUpdateReceived(update: Update?) {
@@ -64,6 +69,10 @@ class TelegramBot(
                 "/temperature" -> sendChatMessage(chatId)
                 "/model" -> sendModelSelectionMessage(chatId)
                 "/strategy" -> sendStrategyMenu(chatId)
+                "/personalized" -> {
+                    isWaitingForPersonalizedData = true
+                    sendPersonalizedTemplate(chatId)
+                }
                 "Включить хранение" -> {
                     isStoreEnabled = true
                     sendPlainTextMessage(chatId, "Хранение включено")
@@ -75,38 +84,44 @@ class TelegramBot(
                 "0.7", "1.0", "1.2" -> handleTemperatureButton(chatId, text)
                 "gpt-3.5-turbo", "gpt-4o", "gpt-5.2" -> handleModelSelection(chatId, text)
                 else -> {
-                    GlobalScope.launch {
-                        val finalInput = when (currentStrategy) {
-                            "strategy_summary" -> summaryStrategyUseCase(text)
-                            "strategy_sliding_window" -> slidingWindowStrategyUseCase(text)
-                            "strategy_sticky_facts" -> addKeyDataToRequestUseCase(text)
-                            "strategy_branching" -> {
-                                val branch = text.split(" ").firstOrNull() ?: "default"
-                                getBranchRecordsAndAddToRequestUseCase(branch,text)
+                    if (isWaitingForPersonalizedData && text.contains("style:") || text.contains("constraints:") || text.contains("context:")) {
+                        isWaitingForPersonalizedData = false
+                        handlePersonalizedData(chatId, text)
+                    } else {
+                        GlobalScope.launch {
+                            val personalizedInput = addPersonalizedDataToRequestUseCase(text)
+                            val finalInput = when (currentStrategy) {
+                                "strategy_summary" -> summaryStrategyUseCase(text)
+                                "strategy_sliding_window" -> slidingWindowStrategyUseCase(text)
+                                "strategy_sticky_facts" -> addKeyDataToRequestUseCase(text)
+                                "strategy_branching" -> {
+                                    val branch = text.split(" ").firstOrNull() ?: "default"
+                                    getBranchRecordsAndAddToRequestUseCase(branch,text)
+                                }
+                                else -> personalizedInput
                             }
-                            else -> text
-                        }
 
-                        val response = GetOpenAIResponseUseCase(
-                            input = finalInput,
-                            previousResponseId = if (isStoreEnabled) previousResponseId else null,
-                            isStoreEnabled = isStoreEnabled,
-                            temperature = temperature,
-                            model = selectedModel // Используем выбранную модель
-                        )
-                        when (currentStrategy) {
-                            "strategy_summary" -> response.getOrNull()?.let { saveResponseTextUseCase(it, text) }
-                            "strategy_sliding_window" -> response.getOrNull()?.let { saveMessageSlidingWindowUseCase(it, text) }
-                            "strategy_sticky_facts" -> response.getOrNull()?.let { saveKeyDataFromResponseUseCase(it, text) }
-                            "strategy_branching" -> response.getOrNull()?.let {
-                                val branch = text.split(" ").firstOrNull() ?: "default"
-                                saveMessageBranchingUseCase(it, branch, text)
+                            val response = GetOpenAIResponseUseCase(
+                                input = finalInput,
+                                previousResponseId = if (isStoreEnabled) previousResponseId else null,
+                                isStoreEnabled = isStoreEnabled,
+                                temperature = temperature,
+                                model = selectedModel // Используем выбранную модель
+                            )
+                            when (currentStrategy) {
+                                "strategy_summary" -> response.getOrNull()?.let { saveResponseTextUseCase(it, text) }
+                                "strategy_sliding_window" -> response.getOrNull()?.let { saveMessageSlidingWindowUseCase(it, text) }
+                                "strategy_sticky_facts" -> response.getOrNull()?.let { saveKeyDataFromResponseUseCase(it, text) }
+                                "strategy_branching" -> response.getOrNull()?.let {
+                                    val branch = text.split(" ").firstOrNull() ?: "default"
+                                    saveMessageBranchingUseCase(it, branch, text)
+                                }
                             }
-                        }
-                        if (isStoreEnabled) previousResponseId = response.getOrNull()?.id
-                        when {
-                            response.isSuccess -> sendTextMessage(chatId, getContent(response))
-                            response.isFailure -> sendPlainTextMessage(chatId, response.exceptionOrNull()?.message ?: "")
+                            if (isStoreEnabled) previousResponseId = response.getOrNull()?.id
+                            when {
+                                response.isSuccess -> sendTextMessage(chatId, getContent(response))
+                                response.isFailure -> sendPlainTextMessage(chatId, response.exceptionOrNull()?.message ?: "")
+                            }
                         }
                     }
                 }
@@ -150,6 +165,54 @@ class TelegramBot(
         val content = responseValue.output.firstOrNull { it.role == "assistant" }?.content?.firstOrNull()?.text ?: ""
 
         return "$modelInfo\n\n$usageInfo\n\n$inputCostInfo\n$outputCostInfo\n\n$totalCostInfo\n\n$responseTimeInfo\n\n$content"
+    }
+
+    private fun sendPersonalizedTemplate(chatId: Long) {
+        val template = """
+            Отправьте персонализированные данные в следующем формате:
+            
+            /personalized
+            style: [список стилей через запятую]
+            constraints: [список ограничений через запятую]
+            context: [список контекста через запятую]
+            
+            Пример:
+            /personalized
+            style: формальный, научный
+            constraints: не использовать сленг, не использовать эмодзи
+            context: описания технологических процессов
+        """.trimIndent()
+
+        sendPlainTextMessage(chatId, template)
+    }
+
+    private fun handlePersonalizedData(chatId: Long, text: String) {
+        val lines = text.lines().filter { it.isNotBlank() }
+        val parsedData = mutableMapOf<String, List<String>>()
+
+        for (line in lines) {
+            when {
+                line.startsWith("style:") -> {
+                    parsedData["style"] = line.substringAfter(":").trim().split(",").map { it.trim() }.filter { it.isNotEmpty() }
+                }
+                line.startsWith("constraints:") -> {
+                    parsedData["constraints"] = line.substringAfter(":").trim().split(",").map { it.trim() }.filter { it.isNotEmpty() }
+                }
+                line.startsWith("context:") -> {
+                    parsedData["context"] = line.substringAfter(":").trim().split(",").map { it.trim() }.filter { it.isNotEmpty() }
+                }
+            }
+        }
+
+        // Сохраняем данные через юзкейс
+        GlobalScope.launch {
+            addPersonalizedDataUseCase(
+                parsedData["style"] ?: emptyList(),
+                parsedData["constraints"] ?: emptyList(),
+                parsedData["context"] ?: emptyList()
+            )
+            sendPlainTextMessage(chatId, "Персонализированные данные сохранены! Теперь все запросы будут использовать эти параметры.")
+        }
     }
 
     private fun sendTextMessage(chatId: Long, text: String) {

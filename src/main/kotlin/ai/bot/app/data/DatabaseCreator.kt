@@ -30,6 +30,7 @@ object DatabaseCreator {
             // Создаем таблицу responses
             createResponsesTable(connection)
             createKeyDataTable(connection)
+            createPersonalizedDataTable(connection)
         }
 
         return Database.connect(
@@ -59,6 +60,22 @@ object DatabaseCreator {
             CREATE TABLE IF NOT EXISTS key_data (
                 id BIGINT AUTO_INCREMENT PRIMARY KEY,
                 content TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """.trimIndent()
+
+        connection.createStatement().use { stmt ->
+            stmt.execute(createTableSql)
+        }
+    }
+
+    private fun createPersonalizedDataTable(connection: Connection) {
+        val createTableSql = """
+            CREATE TABLE IF NOT EXISTS personalized_data (
+                id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                style TEXT NOT NULL,
+                constraints TEXT NOT NULL,
+                context TEXT NOT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """.trimIndent()

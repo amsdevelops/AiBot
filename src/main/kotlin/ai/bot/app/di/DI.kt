@@ -3,8 +3,11 @@ package ai.bot.app.di
 import ai.bot.app.TelegramBot
 import ai.bot.app.data.DatabaseCreator
 import ai.bot.app.data.repository.KeyDataRepository
+import ai.bot.app.data.repository.PersonalizedDataRepository
 import ai.bot.app.data.repository.ResponsesRepository
 import ai.bot.app.usecase.AddKeyDataToRequestUseCase
+import ai.bot.app.usecase.AddPersonalizedDataToRequestUseCase
+import ai.bot.app.usecase.AddPersonalizedDataUseCase
 import ai.bot.app.usecase.AddSavedResponsesToRequestUseCase
 import ai.bot.app.usecase.ClearResponsesRepositoryUseCase
 import ai.bot.app.usecase.GetBranchRecordsAndAddToRequestUseCase
@@ -57,6 +60,13 @@ object DI {
     private val saveMessageSlidingWindowUseCase: SaveMessageSlidingWindowUseCase by lazy {
         SaveMessageSlidingWindowUseCase(repository)
     }
+    private val personalizedDataRepository: PersonalizedDataRepository by lazy { PersonalizedDataRepository(database) }
+    private val addPersonalizedDataUseCase: AddPersonalizedDataUseCase by lazy {
+        AddPersonalizedDataUseCase(personalizedDataRepository)
+    }
+    private val addPersonalizedDataToRequestUseCase: AddPersonalizedDataToRequestUseCase by lazy {
+        AddPersonalizedDataToRequestUseCase(personalizedDataRepository)
+    }
 
     val telegramBot: TelegramBot? by lazy {
         GetLocalPropertiesUseCase("BOT_KEY")?.let { key ->
@@ -70,6 +80,8 @@ object DI {
                 getBranchRecordsAndAddToRequestUseCase = getBranchRecordsAndAddToRequestUseCase,
                 saveMessageBranchingUseCase = saveMessageBranchingUseCase,
                 saveMessageSlidingWindowUseCase = saveMessageSlidingWindowUseCase,
+                addPersonalizedDataUseCase = addPersonalizedDataUseCase,
+                addPersonalizedDataToRequestUseCase = addPersonalizedDataToRequestUseCase,
                 botToken = key,
             )
         }

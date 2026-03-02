@@ -4,9 +4,11 @@ import ai.bot.app.data.db.DbResponse
 import org.ktorm.database.Database
 import org.ktorm.dsl.delete
 import org.ktorm.dsl.deleteAll
+import org.ktorm.dsl.eq
 import org.ktorm.dsl.inList
 import org.ktorm.dsl.insert
 import org.ktorm.entity.count
+import org.ktorm.entity.filter
 import org.ktorm.entity.map
 import org.ktorm.entity.sequenceOf
 import org.ktorm.entity.sortedBy
@@ -54,4 +56,18 @@ class ResponsesRepository(
         database.delete(responsesTable) { it.id inList oldRecords }
     }
 
+    fun addWithBranch(content: String, branch: String) {
+        database.insert(responsesTable) {
+            set(responsesTable.content, content)
+            set(responsesTable.branch, branch)
+            set(responsesTable.createdAt, Instant.now())
+        }
+    }
+
+    fun getRecordsByBranch(branch: String): String {
+        return database.sequenceOf(responsesTable)
+            .filter { it.branch eq branch }
+            .map { it.content }
+            .joinToString("\n\n")
+    }
 }

@@ -7,18 +7,16 @@ import org.ktorm.schema.timestamp
 import org.ktorm.schema.varchar
 import java.time.Instant
 
-interface Response : Entity<Response> {
+interface KeyData : Entity<KeyData> {
     val id: Long
     val content: String
-    val branch: String?
     val createdAt: Instant
 
-    companion object : Entity.Factory<Response>()
+    companion object : Entity.Factory<KeyData>()
 }
 
-object DbResponse : Table<Response>("responses") {
+object DbKeyData : Table<KeyData>("key_data") {
     val id = long("id").primaryKey().bindTo { it.id }
     val content = varchar("content").bindTo { it.content }
-    val branch = varchar("branch").bindTo { it.branch }
     val createdAt = timestamp("created_at").bindTo { it.createdAt }
 }

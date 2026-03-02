@@ -6,7 +6,7 @@ import java.sql.Connection
 import java.sql.DriverManager
 
 object DatabaseCreator {
-    
+
     private const val DB_URL = "jdbc:mysql://localhost:3306/"
     private const val DB_NAME = "DB_NAME"
     private const val DB_USER_NAME = "DB_USER_NAME"
@@ -29,6 +29,7 @@ object DatabaseCreator {
 
             // Создаем таблицу responses
             createResponsesTable(connection)
+            createKeyDataTable(connection)
         }
 
         return Database.connect(
@@ -37,16 +38,31 @@ object DatabaseCreator {
             password = GetLocalPropertiesUseCase(DB_PASSWORD)
         )
     }
-    
+
     private fun createResponsesTable(connection: Connection) {
         val createTableSql = """
             CREATE TABLE IF NOT EXISTS responses (
                 id BIGINT AUTO_INCREMENT PRIMARY KEY,
                 content TEXT NOT NULL,
+                branch VARCHAR(255),
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """.trimIndent()
-        
+
+        connection.createStatement().use { stmt ->
+            stmt.execute(createTableSql)
+        }
+    }
+
+    private fun createKeyDataTable(connection: Connection) {
+        val createTableSql = """
+            CREATE TABLE IF NOT EXISTS key_data (
+                id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                content TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """.trimIndent()
+
         connection.createStatement().use { stmt ->
             stmt.execute(createTableSql)
         }

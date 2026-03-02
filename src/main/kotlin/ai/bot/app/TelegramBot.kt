@@ -1,12 +1,19 @@
 package ai.bot.app
 
+import ai.bot.app.menu.StrategyMenu
 import ai.bot.app.remote.model.OpenAIResponse
 import ai.bot.app.remote.usecase.GetOpenAIResponseUseCase
-import ai.bot.app.usecase.AddSavedResponsesToRequestUseCase
+import ai.bot.app.usecase.AddKeyDataToRequestUseCase
 import ai.bot.app.usecase.CalculateCostUseCase
 import ai.bot.app.usecase.CalculateResponseTimeUseCase
 import ai.bot.app.usecase.ClearResponsesRepositoryUseCase
+import ai.bot.app.usecase.GetBranchRecordsAndAddToRequestUseCase
+import ai.bot.app.usecase.SaveKeyDataFromResponseUseCase
+import ai.bot.app.usecase.SaveMessageBranchingUseCase
+import ai.bot.app.usecase.SaveMessageSlidingWindowUseCase
 import ai.bot.app.usecase.SaveResponseTextUseCase
+import ai.bot.app.usecase.SlidingWindowStrategyUseCase
+import ai.bot.app.usecase.SummaryStrategyUseCase
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
@@ -22,15 +29,23 @@ import org.telegram.telegrambots.meta.exceptions.TelegramApiException
 
 class TelegramBot(
     private val saveResponseTextUseCase: SaveResponseTextUseCase,
-    private val addResponsesToRequestUseCase: AddSavedResponsesToRequestUseCase,
+    private val saveMessageSlidingWindowUseCase: SaveMessageSlidingWindowUseCase,
     private val clearResponsesRepositoryUseCase: ClearResponsesRepositoryUseCase,
+    private val summaryStrategyUseCase: SummaryStrategyUseCase,
+    private val slidingWindowStrategyUseCase: SlidingWindowStrategyUseCase,
+    private val getBranchRecordsAndAddToRequestUseCase: GetBranchRecordsAndAddToRequestUseCase,
+    private val saveMessageBranchingUseCase: SaveMessageBranchingUseCase,
+    private val addKeyDataToRequestUseCase: AddKeyDataToRequestUseCase,
+    private val saveKeyDataFromResponseUseCase: SaveKeyDataFromResponseUseCase,
     botToken: String,
 ) : TelegramLongPollingBot(botToken) {
 
+    private val strategyMenu = StrategyMenu()
     private var previousResponseId: String? = null
     private var isStoreEnabled: Boolean = false
     private var temperature: Double = 1.0
     private var selectedModel: String = "gpt-4o"
+    private var currentStrategy: String? = null
 
     @OptIn(DelicateCoroutinesApi::class)
     override fun onUpdateReceived(update: Update?) {
@@ -48,6 +63,7 @@ class TelegramBot(
                 "/store" -> sendStoreControlMessage(chatId)
                 "/temperature" -> sendChatMessage(chatId)
                 "/model" -> sendModelSelectionMessage(chatId)
+                "/strategy" -> sendStrategyMenu(chatId)
                 "Включить хранение" -> {
                     isStoreEnabled = true
                     sendPlainTextMessage(chatId, "Хранение включено")
@@ -60,14 +76,33 @@ class TelegramBot(
                 "gpt-3.5-turbo", "gpt-4o", "gpt-5.2" -> handleModelSelection(chatId, text)
                 else -> {
                     GlobalScope.launch {
+                        val finalInput = when (currentStrategy) {
+                            "strategy_summary" -> summaryStrategyUseCase(text)
+                            "strategy_sliding_window" -> slidingWindowStrategyUseCase(text)
+                            "strategy_sticky_facts" -> addKeyDataToRequestUseCase(text)
+                            "strategy_branching" -> {
+                                val branch = text.split(" ").firstOrNull() ?: "default"
+                                getBranchRecordsAndAddToRequestUseCase(branch,text)
+                            }
+                            else -> text
+                        }
+
                         val response = GetOpenAIResponseUseCase(
-                            input = addResponsesToRequestUseCase(text),
+                            input = finalInput,
                             previousResponseId = if (isStoreEnabled) previousResponseId else null,
                             isStoreEnabled = isStoreEnabled,
                             temperature = temperature,
                             model = selectedModel // Используем выбранную модель
                         )
-                        response.getOrNull()?.let { saveResponseTextUseCase(it, text) }
+                        when (currentStrategy) {
+                            "strategy_summary" -> response.getOrNull()?.let { saveResponseTextUseCase(it, text) }
+                            "strategy_sliding_window" -> response.getOrNull()?.let { saveMessageSlidingWindowUseCase(it, text) }
+                            "strategy_sticky_facts" -> response.getOrNull()?.let { saveKeyDataFromResponseUseCase(it, text) }
+                            "strategy_branching" -> response.getOrNull()?.let {
+                                val branch = text.split(" ").firstOrNull() ?: "default"
+                                saveMessageBranchingUseCase(it, branch, text)
+                            }
+                        }
                         if (isStoreEnabled) previousResponseId = response.getOrNull()?.id
                         when {
                             response.isSuccess -> sendTextMessage(chatId, getContent(response))
@@ -82,6 +117,12 @@ class TelegramBot(
             val chatId = callbackQuery.message.chatId
 
             when (callbackData) {
+                "strategy_summary", "strategy_sliding_window", "strategy_sticky_facts", "strategy_branching" -> {
+                    currentStrategy = callbackData
+                    val strategy = callbackData.removePrefix("strategy_")
+                    sendPlainTextMessage(chatId, "Выбрана стратегия: $strategy")
+                    // Здесь можно добавить логику обработки выбранной стратегии
+                }
                 "like" -> {
                     sendPlainTextMessage(chatId, "Спасибо за лайк!")
                 }
@@ -90,6 +131,10 @@ class TelegramBot(
                 }
             }
         }
+    }
+
+    private fun sendStrategyMenu(chatId: Long) {
+        strategyMenu.sendStrategyMenu(chatId, this)
     }
 
     private fun getContent(response: Result<OpenAIResponse>): String {

@@ -49,8 +49,6 @@ class TelegramBot(
 ) : TelegramLongPollingBot(botToken) {
 
     private val strategyMenu = StrategyMenu()
-    private var previousResponseId: String? = null
-    private var isStoreEnabled: Boolean = false
     private var temperature: Double = 1.0
     private var selectedModel: String = "gpt-4o"
     private var currentStrategy: String = "strategy_summary"
@@ -70,8 +68,6 @@ class TelegramBot(
                     GlobalScope.launch { clearResponsesRepositoryUseCase() }
                     sendPlainTextMessage(chatId, "Чат очищен")
                 }
-
-                "/store" -> sendStoreControlMessage(chatId)
                 "/temperature" -> sendChatMessage(chatId)
                 "/model" -> sendModelSelectionMessage(chatId)
                 "/strategy" -> sendStrategyMenu(chatId)
@@ -81,15 +77,6 @@ class TelegramBot(
                 }
 
                 "/profile" -> sendProfileMenu(chatId)
-                "Включить хранение" -> {
-                    isStoreEnabled = true
-                    sendPlainTextMessage(chatId, "Хранение включено")
-                }
-
-                "Выключить хранение" -> {
-                    isStoreEnabled = false
-                    sendPlainTextMessage(chatId, "Хранение выключено")
-                }
 
                 "0.7", "1.0", "1.2" -> handleTemperatureButton(chatId, text)
                 "gpt-3.5-turbo", "gpt-4o", "gpt-5.2" -> handleModelSelection(chatId, text)
@@ -118,9 +105,7 @@ class TelegramBot(
                             val inputWithProfile = buildProfilePrompt(profile, finalInput)
 
                             val response = GetOpenAIResponseUseCase(
-                                input = finalInput,
-                                previousResponseId = if (isStoreEnabled) previousResponseId else null,
-                                isStoreEnabled = isStoreEnabled,
+                                input = inputWithProfile,
                                 temperature = temperature,
                                 model = selectedModel // Используем выбранную модель
                             )
@@ -137,7 +122,6 @@ class TelegramBot(
                                     saveMessageBranchingUseCase(it, branch, text)
                                 }
                             }
-                            if (isStoreEnabled) previousResponseId = response.getOrNull()?.id
                             when {
                                 response.isSuccess -> sendTextMessage(chatId, getContent(response))
                                 response.isFailure -> sendPlainTextMessage(
@@ -191,7 +175,7 @@ class TelegramBot(
 
         return profilePrompt
     }
-    
+
     private fun sendStrategyMenu(chatId: Long) {
         strategyMenu.sendStrategyMenu(chatId, this)
     }
@@ -354,27 +338,6 @@ class TelegramBot(
                         add(KeyboardButton("gpt-3.5-turbo"))
                         add(KeyboardButton("gpt-4o"))
                         add(KeyboardButton("gpt-5.2"))
-                    }
-                )
-            }
-        }
-
-        try {
-            execute(message)
-        } catch (e: TelegramApiException) {
-            e.printStackTrace()
-        }
-    }
-
-    private fun sendStoreControlMessage(chatId: Long) {
-        val message = SendMessage().apply {
-            this.chatId = chatId.toString()
-            this.text = "Управление хранением:"
-            this.replyMarkup = ReplyKeyboardMarkup().apply {
-                keyboard = listOf(
-                    KeyboardRow().apply {
-                        add(KeyboardButton("Включить хранение"))
-                        add(KeyboardButton("Выключить хранение"))
                     }
                 )
             }

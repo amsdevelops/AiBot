@@ -1,5 +1,7 @@
 package ai.bot.app
 
+import ai.bot.app.data.model.Profile
+import ai.bot.app.data.model.ProfileType
 import ai.bot.app.menu.StrategyMenu
 import ai.bot.app.remote.model.OpenAIResponse
 import ai.bot.app.remote.usecase.GetOpenAIResponseUseCase
@@ -10,6 +12,7 @@ import ai.bot.app.usecase.CalculateCostUseCase
 import ai.bot.app.usecase.CalculateResponseTimeUseCase
 import ai.bot.app.usecase.ClearResponsesRepositoryUseCase
 import ai.bot.app.usecase.GetBranchRecordsAndAddToRequestUseCase
+import ai.bot.app.usecase.GetProfileUseCase
 import ai.bot.app.usecase.SaveKeyDataFromResponseUseCase
 import ai.bot.app.usecase.SaveMessageBranchingUseCase
 import ai.bot.app.usecase.SaveMessageSlidingWindowUseCase
@@ -41,6 +44,7 @@ class TelegramBot(
     private val saveKeyDataFromResponseUseCase: SaveKeyDataFromResponseUseCase,
     private val addPersonalizedDataUseCase: AddPersonalizedDataUseCase,
     private val addPersonalizedDataToRequestUseCase: AddPersonalizedDataToRequestUseCase,
+    private val getProfileUseCase: GetProfileUseCase,
     botToken: String,
 ) : TelegramLongPollingBot(botToken) {
 
@@ -49,8 +53,9 @@ class TelegramBot(
     private var isStoreEnabled: Boolean = false
     private var temperature: Double = 1.0
     private var selectedModel: String = "gpt-4o"
-    private var currentStrategy: String? = null
+    private var currentStrategy: String = "strategy_summary"
     private var isWaitingForPersonalizedData: Boolean = false
+    private var selectedProfileType: ProfileType = ProfileType.COMMON
 
     @OptIn(DelicateCoroutinesApi::class)
     override fun onUpdateReceived(update: Update?) {
@@ -65,6 +70,7 @@ class TelegramBot(
                     GlobalScope.launch { clearResponsesRepositoryUseCase() }
                     sendPlainTextMessage(chatId, "Чат очищен")
                 }
+
                 "/store" -> sendStoreControlMessage(chatId)
                 "/temperature" -> sendChatMessage(chatId)
                 "/model" -> sendModelSelectionMessage(chatId)
@@ -73,22 +79,30 @@ class TelegramBot(
                     isWaitingForPersonalizedData = true
                     sendPersonalizedTemplate(chatId)
                 }
+
+                "/profile" -> sendProfileMenu(chatId)
                 "Включить хранение" -> {
                     isStoreEnabled = true
                     sendPlainTextMessage(chatId, "Хранение включено")
                 }
+
                 "Выключить хранение" -> {
                     isStoreEnabled = false
                     sendPlainTextMessage(chatId, "Хранение выключено")
                 }
+
                 "0.7", "1.0", "1.2" -> handleTemperatureButton(chatId, text)
                 "gpt-3.5-turbo", "gpt-4o", "gpt-5.2" -> handleModelSelection(chatId, text)
                 else -> {
-                    if (isWaitingForPersonalizedData && text.contains("style:") || text.contains("constraints:") || text.contains("context:")) {
+                    if (isWaitingForPersonalizedData && text.contains("style:") || text.contains("constraints:") || text.contains(
+                            "context:"
+                        )
+                    ) {
                         isWaitingForPersonalizedData = false
                         handlePersonalizedData(chatId, text)
                     } else {
                         GlobalScope.launch {
+                            val profile = getProfileUseCase(selectedProfileType)
                             val personalizedInput = addPersonalizedDataToRequestUseCase(text)
                             val finalInput = when (currentStrategy) {
                                 "strategy_summary" -> summaryStrategyUseCase(text)
@@ -96,10 +110,12 @@ class TelegramBot(
                                 "strategy_sticky_facts" -> addKeyDataToRequestUseCase(text)
                                 "strategy_branching" -> {
                                     val branch = text.split(" ").firstOrNull() ?: "default"
-                                    getBranchRecordsAndAddToRequestUseCase(branch,text)
+                                    getBranchRecordsAndAddToRequestUseCase(branch, text)
                                 }
+
                                 else -> personalizedInput
                             }
+                            val inputWithProfile = buildProfilePrompt(profile, finalInput)
 
                             val response = GetOpenAIResponseUseCase(
                                 input = finalInput,
@@ -110,8 +126,12 @@ class TelegramBot(
                             )
                             when (currentStrategy) {
                                 "strategy_summary" -> response.getOrNull()?.let { saveResponseTextUseCase(it, text) }
-                                "strategy_sliding_window" -> response.getOrNull()?.let { saveMessageSlidingWindowUseCase(it, text) }
-                                "strategy_sticky_facts" -> response.getOrNull()?.let { saveKeyDataFromResponseUseCase(it, text) }
+                                "strategy_sliding_window" -> response.getOrNull()
+                                    ?.let { saveMessageSlidingWindowUseCase(it, text) }
+
+                                "strategy_sticky_facts" -> response.getOrNull()
+                                    ?.let { saveKeyDataFromResponseUseCase(it, text) }
+
                                 "strategy_branching" -> response.getOrNull()?.let {
                                     val branch = text.split(" ").firstOrNull() ?: "default"
                                     saveMessageBranchingUseCase(it, branch, text)
@@ -120,7 +140,10 @@ class TelegramBot(
                             if (isStoreEnabled) previousResponseId = response.getOrNull()?.id
                             when {
                                 response.isSuccess -> sendTextMessage(chatId, getContent(response))
-                                response.isFailure -> sendPlainTextMessage(chatId, response.exceptionOrNull()?.message ?: "")
+                                response.isFailure -> sendPlainTextMessage(
+                                    chatId,
+                                    response.exceptionOrNull()?.message ?: ""
+                                )
                             }
                         }
                     }
@@ -138,23 +161,45 @@ class TelegramBot(
                     sendPlainTextMessage(chatId, "Выбрана стратегия: $strategy")
                     // Здесь можно добавить логику обработки выбранной стратегии
                 }
+
                 "like" -> {
                     sendPlainTextMessage(chatId, "Спасибо за лайк!")
                 }
+
                 "dislike" -> {
                     sendPlainTextMessage(chatId, "Спасибо за обратную связь!")
+                }
+
+                "profile_COMMON", "profile_ANALYTIC", "profile_DEVELOPER" -> {
+                    selectedProfileType = ProfileType.valueOf(callbackData.removePrefix("profile_"))
+                    // Здесь можно сохранить выбранный профиль в состоянии бота или пользователе
+                    sendPlainTextMessage(chatId, "Профиль ${selectedProfileType.name} выбран")
                 }
             }
         }
     }
 
+    private fun buildProfilePrompt(profile: Profile, userInput: String): String {
+        val profilePrompt = """
+        You are an assistant with the following characteristics:
+        Style: ${profile.style}
+        Format: ${profile.format}
+        Constraints: ${profile.constraints}
+        
+        User input: $userInput
+    """.trimIndent()
+
+        return profilePrompt
+    }
+    
     private fun sendStrategyMenu(chatId: Long) {
         strategyMenu.sendStrategyMenu(chatId, this)
     }
 
     private fun getContent(response: Result<OpenAIResponse>): String {
         val responseValue = response.getOrNull() ?: return ""
-        val usageInfo = "Usage: ${responseValue.usage.inputTokens} input tokens, ${responseValue.usage.outputTokens} output tokens"
+        val usageInfo =
+            "Usage: ${responseValue.usage.inputTokens} input tokens, ${responseValue.usage.outputTokens} output tokens"
         val (inputCost, outputCost) = CalculateCostUseCase(responseValue.usage, selectedModel)
         val inputCostInfo = "Input cost: ${String.format("%.4f", inputCost)} RUB"
         val outputCostInfo = "Output cost: ${String.format("%.4f", outputCost)} RUB"
@@ -193,13 +238,18 @@ class TelegramBot(
         for (line in lines) {
             when {
                 line.startsWith("style:") -> {
-                    parsedData["style"] = line.substringAfter(":").trim().split(",").map { it.trim() }.filter { it.isNotEmpty() }
+                    parsedData["style"] =
+                        line.substringAfter(":").trim().split(",").map { it.trim() }.filter { it.isNotEmpty() }
                 }
+
                 line.startsWith("constraints:") -> {
-                    parsedData["constraints"] = line.substringAfter(":").trim().split(",").map { it.trim() }.filter { it.isNotEmpty() }
+                    parsedData["constraints"] =
+                        line.substringAfter(":").trim().split(",").map { it.trim() }.filter { it.isNotEmpty() }
                 }
+
                 line.startsWith("context:") -> {
-                    parsedData["context"] = line.substringAfter(":").trim().split(",").map { it.trim() }.filter { it.isNotEmpty() }
+                    parsedData["context"] =
+                        line.substringAfter(":").trim().split(",").map { it.trim() }.filter { it.isNotEmpty() }
                 }
             }
         }
@@ -211,7 +261,10 @@ class TelegramBot(
                 parsedData["constraints"] ?: emptyList(),
                 parsedData["context"] ?: emptyList()
             )
-            sendPlainTextMessage(chatId, "Персонализированные данные сохранены! Теперь все запросы будут использовать эти параметры.")
+            sendPlainTextMessage(
+                chatId,
+                "Персонализированные данные сохранены! Теперь все запросы будут использовать эти параметры."
+            )
         }
     }
 
@@ -340,14 +393,42 @@ class TelegramBot(
                 temperature = 0.7
                 sendPlainTextMessage(chatId, "Temperature set to 0.7")
             }
+
             "1.0" -> {
                 temperature = 1.0
                 sendPlainTextMessage(chatId, "Temperature set to 1.0")
             }
+
             "1.2" -> {
                 temperature = 1.2
                 sendPlainTextMessage(chatId, "Temperature set to 1.2")
             }
+        }
+    }
+
+    private fun sendProfileMenu(chatId: Long) {
+        val keyboard = InlineKeyboardMarkup().apply {
+            keyboard = listOf(
+                listOf(
+                    InlineKeyboardButton("COMMON").apply { callbackData = "profile_COMMON" },
+                    InlineKeyboardButton("ANALYTIC").apply { callbackData = "profile_ANALYTIC" }
+                ),
+                listOf(
+                    InlineKeyboardButton("DEVELOPER").apply { callbackData = "profile_DEVELOPER" }
+                )
+            )
+        }
+
+        val message = SendMessage().apply {
+            this.chatId = chatId.toString()
+            text = "Выберите профиль:"
+            replyMarkup = keyboard
+        }
+
+        try {
+            execute(message)
+        } catch (e: TelegramApiException) {
+            e.printStackTrace()
         }
     }
 

@@ -1,6 +1,7 @@
 package ai.bot.app.taskmachine
 
 import ai.bot.app.remote.usecase.GetOpenAIResponseUseCase
+import ai.bot.app.usecase.GetInvariantsUseCase
 import java.util.concurrent.atomic.AtomicReference
 
 enum class TaskState {
@@ -16,7 +17,7 @@ class TaskStateMachine {
     private val plan = AtomicReference<String?>()
     private val executionResult = AtomicReference<String?>()
     private val validationResult = AtomicReference<String?>()
-    private val temperature = 1.0
+    private val temperature = 0.5
     private val selectedModel = "gpt-4o"
 
     suspend fun processUserInput(input: String): String {
@@ -37,7 +38,7 @@ class TaskStateMachine {
                Проанализируйте следующий вопрос и создайте подробный план действий для его решения:
                 "$input"
     
-                Пожалуйста, предоставьте пошаговый план действий, которые необходимо предпринять для решения данного вопроса.
+               Пожалуйста, предоставьте пошаговый план действий, которые необходимо предпринять для решения данного вопроса.
         """.trimIndent()
 
         // Получаем ответ от OpenAI
@@ -134,18 +135,24 @@ class TaskStateMachine {
         val currentPlan = plan.get() ?: return "План не найден. Повторите запрос."
         val currentQuestion = userQuestion.get() ?: return "Вопрос не найден. Повторите запрос."
 
-        // Создаем промт для проверки соответствия
+        // Загружаем инварианты
+        val invariants = GetInvariantsUseCase()
+
+        // Создаем промт для проверки соответствия инвариантам
         val prompt = """
-            Проверьте, правильно ли следующий ответ отвечает на исходный вопрос и следует ли он плану действий:
-    
-            Исходный вопрос: $currentQuestion
-    
-            План действий: $currentPlan
-    
-            Ответ для проверки: ${executionResult.get()}
-    
-            Является ли ответ правильным и полным? Ответьте "YES", если правильно, или "NO", если неправильно.
-        """.trimIndent()
+        Проверьте, правильно ли следующий ответ отвечает на исходный вопрос и следует ли он плану действий:
+        
+        Исходный вопрос: $currentQuestion
+        
+        План действий: $currentPlan
+        
+        Ответ для проверки: ${executionResult.get()}
+        
+        Инварианты для проверки:
+        - ${invariants.invariants}
+        
+        Является ли ответ правильным и полным? Ответьте "YES", если правильно, или "NO", если неправильно.
+    """.trimIndent()
 
         // Получаем ответ от OpenAI
         val response = GetOpenAIResponseUseCase(
@@ -163,20 +170,23 @@ class TaskStateMachine {
                     ?.text
                     ?.takeIf { !it.isNullOrBlank() }
 
-                if (checkResult?.uppercase() == "YES") {
+                if (checkResult?.uppercase()?.contains("YES") == true) {
                     currentState.set(TaskState.DONE)
                     "Задача завершена успешно. Результат: ${executionResult.get()}"
-                } else if (checkResult?.uppercase() == "NO") {
+                } else if (checkResult?.uppercase()?.contains("NO") == true) {
                     // Повторяем выполнение
                     val executionPrompt = """
-                        Используя следующий план действий, выполните задачу:
-    
-                        План: $currentPlan
-    
-                        Вопрос: $currentQuestion
-    
-                        Предоставьте подробный ответ на исходный вопрос на основе выполнения плана.
-                    """.trimIndent()
+                    Используя следующий план действий, выполните задачу:
+                    
+                    План: $currentPlan
+                    
+                    Вопрос: $currentQuestion
+                    
+                    Пожалуйста, следуйте следующим инвариантам:
+                    - ${invariants.invariants}
+                    
+                    Предоставьте подробный ответ на исходный вопрос на основе выполнения плана.
+                """.trimIndent()
 
                     val executionResponse = GetOpenAIResponseUseCase(
                         input = executionPrompt,
@@ -184,7 +194,7 @@ class TaskStateMachine {
                         model = selectedModel
                     )
 
-                    return when {
+                    when {
                         executionResponse.isSuccess -> {
                             val newResult = executionResponse.getOrNull()?.output
                                 ?.firstOrNull { it.role == "assistant" }
@@ -195,7 +205,7 @@ class TaskStateMachine {
 
                             if (newResult != null) {
                                 executionResult.set(newResult)
-                                "Повторное выполнение задачи. Результат:\n\n$newResult\n\nПроверим снова."
+                                "Повторное выполнение задачи с учетом инвариантов. Результат:\n\n$newResult\n\nПроверим снова."
                             } else {
                                 "Не удалось получить результат повторного выполнения. Повторите попытку."
                             }

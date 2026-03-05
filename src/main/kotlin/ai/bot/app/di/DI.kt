@@ -6,6 +6,7 @@ import ai.bot.app.data.repository.KeyDataRepository
 import ai.bot.app.data.repository.PersonalizedDataRepository
 import ai.bot.app.data.repository.ProfileRepository
 import ai.bot.app.data.repository.ResponsesRepository
+import ai.bot.app.taskmachine.TaskStateMachine
 import ai.bot.app.usecase.AddKeyDataToRequestUseCase
 import ai.bot.app.usecase.AddPersonalizedDataToRequestUseCase
 import ai.bot.app.usecase.AddPersonalizedDataUseCase
@@ -74,6 +75,7 @@ object DI {
     private val loadProfileUseCase: LoadProfileFromFileUseCase by lazy { LoadProfileFromFileUseCase() }
     private val profileRepository: ProfileRepository by lazy { ProfileRepository(loadProfileUseCase) }
     private val getProfileUseCase: GetProfileUseCase by lazy { GetProfileUseCase(profileRepository) }
+    private val taskStateMachine: TaskStateMachine by lazy { TaskStateMachine() }
 
     val telegramBot: TelegramBot? by lazy {
         GetLocalPropertiesUseCase("BOT_KEY")?.let { key ->
@@ -90,6 +92,7 @@ object DI {
                 addPersonalizedDataUseCase = addPersonalizedDataUseCase,
                 addPersonalizedDataToRequestUseCase = addPersonalizedDataToRequestUseCase,
                 getProfileUseCase = getProfileUseCase,
+                taskStateMachine = taskStateMachine,
                 botToken = key,
             )
         }

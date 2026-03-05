@@ -5,6 +5,7 @@ import ai.bot.app.data.model.ProfileType
 import ai.bot.app.menu.StrategyMenu
 import ai.bot.app.remote.model.OpenAIResponse
 import ai.bot.app.remote.usecase.GetOpenAIResponseUseCase
+import ai.bot.app.taskmachine.TaskStateMachine
 import ai.bot.app.usecase.AddKeyDataToRequestUseCase
 import ai.bot.app.usecase.AddPersonalizedDataToRequestUseCase
 import ai.bot.app.usecase.AddPersonalizedDataUseCase
@@ -45,6 +46,7 @@ class TelegramBot(
     private val addPersonalizedDataUseCase: AddPersonalizedDataUseCase,
     private val addPersonalizedDataToRequestUseCase: AddPersonalizedDataToRequestUseCase,
     private val getProfileUseCase: GetProfileUseCase,
+    private val taskStateMachine: TaskStateMachine,
     botToken: String,
 ) : TelegramLongPollingBot(botToken) {
 
@@ -54,6 +56,7 @@ class TelegramBot(
     private var currentStrategy: String = "strategy_summary"
     private var isWaitingForPersonalizedData: Boolean = false
     private var selectedProfileType: ProfileType = ProfileType.COMMON
+    private var isStateMachine: Boolean = false
 
     @OptIn(DelicateCoroutinesApi::class)
     override fun onUpdateReceived(update: Update?) {
@@ -75,7 +78,7 @@ class TelegramBot(
                     isWaitingForPersonalizedData = true
                     sendPersonalizedTemplate(chatId)
                 }
-
+                "/statemachine" -> isStateMachine = !isStateMachine
                 "/profile" -> sendProfileMenu(chatId)
 
                 "0.7", "1.0", "1.2" -> handleTemperatureButton(chatId, text)
@@ -89,45 +92,48 @@ class TelegramBot(
                         handlePersonalizedData(chatId, text)
                     } else {
                         GlobalScope.launch {
-                            val profile = getProfileUseCase(selectedProfileType)
-                            val personalizedInput = addPersonalizedDataToRequestUseCase(text)
-                            val finalInput = when (currentStrategy) {
-                                "strategy_summary" -> summaryStrategyUseCase(text)
-                                "strategy_sliding_window" -> slidingWindowStrategyUseCase(text)
-                                "strategy_sticky_facts" -> addKeyDataToRequestUseCase(text)
-                                "strategy_branching" -> {
-                                    val branch = text.split(" ").firstOrNull() ?: "default"
-                                    getBranchRecordsAndAddToRequestUseCase(branch, text)
+                            if (isStateMachine) {
+                                sendTextMessage(chatId, taskStateMachine.processUserInput(text))
+                            } else {val profile = getProfileUseCase(selectedProfileType)
+                                val personalizedInput = addPersonalizedDataToRequestUseCase(text)
+                                val finalInput = when (currentStrategy) {
+                                    "strategy_summary" -> summaryStrategyUseCase(text)
+                                    "strategy_sliding_window" -> slidingWindowStrategyUseCase(text)
+                                    "strategy_sticky_facts" -> addKeyDataToRequestUseCase(text)
+                                    "strategy_branching" -> {
+                                        val branch = text.split(" ").firstOrNull() ?: "default"
+                                        getBranchRecordsAndAddToRequestUseCase(branch, text)
+                                    }
+
+                                    else -> personalizedInput
                                 }
+                                val inputWithProfile = buildProfilePrompt(profile, finalInput)
 
-                                else -> personalizedInput
-                            }
-                            val inputWithProfile = buildProfilePrompt(profile, finalInput)
-
-                            val response = GetOpenAIResponseUseCase(
-                                input = inputWithProfile,
-                                temperature = temperature,
-                                model = selectedModel // Используем выбранную модель
-                            )
-                            when (currentStrategy) {
-                                "strategy_summary" -> response.getOrNull()?.let { saveResponseTextUseCase(it, text) }
-                                "strategy_sliding_window" -> response.getOrNull()
-                                    ?.let { saveMessageSlidingWindowUseCase(it, text) }
-
-                                "strategy_sticky_facts" -> response.getOrNull()
-                                    ?.let { saveKeyDataFromResponseUseCase(it, text) }
-
-                                "strategy_branching" -> response.getOrNull()?.let {
-                                    val branch = text.split(" ").firstOrNull() ?: "default"
-                                    saveMessageBranchingUseCase(it, branch, text)
-                                }
-                            }
-                            when {
-                                response.isSuccess -> sendTextMessage(chatId, getContent(response))
-                                response.isFailure -> sendPlainTextMessage(
-                                    chatId,
-                                    response.exceptionOrNull()?.message ?: ""
+                                val response = GetOpenAIResponseUseCase(
+                                    input = inputWithProfile,
+                                    temperature = temperature,
+                                    model = selectedModel // Используем выбранную модель
                                 )
+                                when (currentStrategy) {
+                                    "strategy_summary" -> response.getOrNull()?.let { saveResponseTextUseCase(it, text) }
+                                    "strategy_sliding_window" -> response.getOrNull()
+                                        ?.let { saveMessageSlidingWindowUseCase(it, text) }
+
+                                    "strategy_sticky_facts" -> response.getOrNull()
+                                        ?.let { saveKeyDataFromResponseUseCase(it, text) }
+
+                                    "strategy_branching" -> response.getOrNull()?.let {
+                                        val branch = text.split(" ").firstOrNull() ?: "default"
+                                        saveMessageBranchingUseCase(it, branch, text)
+                                    }
+                                }
+                                when {
+                                    response.isSuccess -> sendTextMessage(chatId, getContent(response))
+                                    response.isFailure -> sendPlainTextMessage(
+                                        chatId,
+                                        response.exceptionOrNull()?.message ?: ""
+                                    )
+                                }
                             }
                         }
                     }

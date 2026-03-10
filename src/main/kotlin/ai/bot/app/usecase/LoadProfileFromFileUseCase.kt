@@ -2,14 +2,20 @@ package ai.bot.app.usecase
 
 import ai.bot.app.data.model.Profile
 import ai.bot.app.data.model.ProfileType
-import com.google.gson.Gson
-import java.io.File
-import kotlin.jvm.java
+import kotlinx.serialization.json.Json
 
 class LoadProfileFromFileUseCase {
     operator fun invoke(profileType: ProfileType): Profile {
-        val file = File("src/main/resources/profile/${profileType.fileName}")
-        val content = file.readText()
-        return Gson().fromJson(content, Profile::class.java)
+        // Используем ClassLoader для чтения ресурсов
+        val resource = javaClass.classLoader.getResource("profile/${profileType.name.lowercase()}.json")
+            ?: throw IllegalArgumentException("Resource not found: profile/${profileType.name.lowercase()}.json")
+        val json = resource.readText()
+        return fromJson(json)
+    }
+
+
+    fun fromJson(json: String): Profile {
+        val profile = Json.decodeFromString<Profile>(json)
+        return profile
     }
 }

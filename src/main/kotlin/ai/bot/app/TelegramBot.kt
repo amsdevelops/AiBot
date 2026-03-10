@@ -2,6 +2,7 @@ package ai.bot.app
 
 import ai.bot.app.data.model.Profile
 import ai.bot.app.data.model.ProfileType
+import ai.bot.app.mcp.WeatherMcpUseCase
 import ai.bot.app.menu.StrategyMenu
 import ai.bot.app.remote.model.OpenAIResponse
 import ai.bot.app.remote.usecase.GetOpenAIResponseUseCase
@@ -47,6 +48,7 @@ class TelegramBot(
     private val addPersonalizedDataToRequestUseCase: AddPersonalizedDataToRequestUseCase,
     private val getProfileUseCase: GetProfileUseCase,
     private val taskStateMachine: TaskStateMachine,
+    private val weatherMcpUseCase: WeatherMcpUseCase,
     botToken: String,
 ) : TelegramLongPollingBot(botToken) {
 
@@ -80,6 +82,7 @@ class TelegramBot(
                 }
                 "/statemachine" -> isStateMachine = !isStateMachine
                 "/profile" -> sendProfileMenu(chatId)
+                "/weather" -> sendWeatherMcpMessage(chatId)
 
                 "0.7", "1.0", "1.2" -> handleTemperatureButton(chatId, text)
                 "gpt-3.5-turbo", "gpt-4o", "gpt-5.2" -> handleModelSelection(chatId, text)
@@ -166,6 +169,13 @@ class TelegramBot(
                     sendPlainTextMessage(chatId, "Профиль ${selectedProfileType.name} выбран")
                 }
             }
+        }
+    }
+
+    private fun sendWeatherMcpMessage(chatId: Long) {
+        GlobalScope.launch {
+            val weather = weatherMcpUseCase.getServerCapabilities()
+            sendPlainTextMessage(chatId, weather.toString())
         }
     }
 

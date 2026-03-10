@@ -5,6 +5,9 @@ okhttp = "4.10.0"
 coroutines = "1.8.0"
 ktorm = "3.4.0"
 mySqlConnector = "8.0.33"
+ktor = "2.3.4"
+kotlinx-serialization = "1.6.0"
+modelcontextprotocol = "0.1.0"
 
 [libraries]
 # Telegram Bot
@@ -18,3 +21,7 @@ kotlin-coroutines = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutine
 ktormCore = { module = "org.ktorm:ktorm-core", version.ref = "ktorm" }
 ktormSupport = { module = "org.ktorm:ktorm-support-mysql", version.ref = "ktorm" }
 mySqlConnector = { module = "mysql:mysql-connector-java", version.ref = "mySqlConnector" }
+ktor-client-cio = { group = "io.ktor", name = "ktor-client-cio", version.ref = "ktor" }
+kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinx-serialization" }
+modelcontextprotocol-kotlin-sdk = { group = "io.modelcontextprotocol", name = "kotlin-sdk", version.ref = "modelcontextprotocol" }
+

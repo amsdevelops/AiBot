@@ -6,6 +6,8 @@ import ai.bot.app.data.repository.KeyDataRepository
 import ai.bot.app.data.repository.PersonalizedDataRepository
 import ai.bot.app.data.repository.ProfileRepository
 import ai.bot.app.data.repository.ResponsesRepository
+import ai.bot.app.mcp.WeatherMcpClient
+import ai.bot.app.mcp.WeatherMcpUseCase
 import ai.bot.app.taskmachine.TaskStateMachine
 import ai.bot.app.usecase.AddKeyDataToRequestUseCase
 import ai.bot.app.usecase.AddPersonalizedDataToRequestUseCase
@@ -76,6 +78,8 @@ object DI {
     private val profileRepository: ProfileRepository by lazy { ProfileRepository(loadProfileUseCase) }
     private val getProfileUseCase: GetProfileUseCase by lazy { GetProfileUseCase(profileRepository) }
     private val taskStateMachine: TaskStateMachine by lazy { TaskStateMachine() }
+    private val weatherMcpClient: WeatherMcpClient by lazy { WeatherMcpClient() }
+    private val weatherMcpUseCase: WeatherMcpUseCase by lazy { WeatherMcpUseCase(weatherMcpClient) }
 
     val telegramBot: TelegramBot? by lazy {
         GetLocalPropertiesUseCase("BOT_KEY")?.let { key ->
@@ -93,6 +97,7 @@ object DI {
                 addPersonalizedDataToRequestUseCase = addPersonalizedDataToRequestUseCase,
                 getProfileUseCase = getProfileUseCase,
                 taskStateMachine = taskStateMachine,
+                weatherMcpUseCase = weatherMcpUseCase,
                 botToken = key,
             )
         }

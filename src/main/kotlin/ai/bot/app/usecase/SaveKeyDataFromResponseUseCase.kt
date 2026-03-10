@@ -3,6 +3,7 @@ package ai.bot.app.usecase
 import ai.bot.app.data.repository.ResponsesRepository
 import ai.bot.app.data.repository.KeyDataRepository
 import ai.bot.app.remote.model.OpenAIResponse
+import ai.bot.app.remote.model.TextContent
 import ai.bot.app.remote.usecase.GetOpenAIResponseUseCase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -16,7 +17,7 @@ class SaveKeyDataFromResponseUseCase(
         messageText?.let { repository.add(it) }
 
         // Получаем текст ответа от OpenAI
-        val responseText = response.output
+        val responseText = response.output.filterIsInstance<TextContent>()
             .firstOrNull { it.role == "assistant" }
             ?.content
             ?.firstOrNull()
@@ -47,16 +48,13 @@ class SaveKeyDataFromResponseUseCase(
         val keyDataResult = withContext(Dispatchers.IO) {
             GetOpenAIResponseUseCase(
                 input = keyDataPrompt,
-                previousResponseId = null,
-                isStoreEnabled = false,
                 temperature = 0.3,
-                model = "gpt-4o"
             )
         }
 
         // Сохраняем ключевые данные в отдельную таблицу
         keyDataResult.getOrNull()?.let { keyDataResponse ->
-            val keyDataText = keyDataResponse.output
+            val keyDataText = keyDataResponse.output.filterIsInstance<TextContent>()
                 .firstOrNull { it.role == "assistant" }
                 ?.content
                 ?.firstOrNull()

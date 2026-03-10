@@ -1,8 +1,10 @@
 package ai.bot.app.remote.usecase
 
+import ToolFunction
 import ai.bot.app.remote.api.RetrofitClient
 import ai.bot.app.remote.model.OpenAIRequest
 import ai.bot.app.remote.model.OpenAIResponse
+import ai.bot.app.remote.model.OpenAITool
 import ai.bot.app.usecase.GetLocalPropertiesUseCase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -14,7 +16,8 @@ object GetOpenAIResponseUseCase {
         previousResponseId: String? = null,
         isStoreEnabled: Boolean = false,
         temperature: Double,
-        model: String = "gpt-4o" // Модель по умолчанию
+        model: String = "gpt-4o", // Модель по умолчанию
+        tools: List<ToolFunction>? = emptyList(),
     ): Result<OpenAIResponse> {
         return withContext(Dispatchers.IO) {
             val apiKey = GetLocalPropertiesUseCase("AI_KEY")
@@ -25,6 +28,7 @@ object GetOpenAIResponseUseCase {
                 previousResponseId = previousResponseId,
                 store = isStoreEnabled,
                 temperature = temperature,
+                tools = tools.orEmpty(),
             )
 
             try {

@@ -4,12 +4,17 @@ package ai.bot.app.mcp
 import Parameters
 import Property
 import ToolFunction
+import kotlinx.coroutines.future.await
 import kotlinx.serialization.json.*
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.time.Duration
+import java.net.http.WebSocket
+import java.net.http.WebSocket.Listener
+import java.nio.ByteBuffer
+import java.util.concurrent.CompletableFuture
 
 class InvestmentAgentMcpClient {
     
@@ -90,7 +95,7 @@ class InvestmentAgentMcpClient {
                 .GET()
                 .build()
 
-            val response = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString())
+            val response = httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString()).await()
 
             if (response.statusCode() == 200) {
                 Json.parseToJsonElement(response.body())
@@ -100,6 +105,20 @@ class InvestmentAgentMcpClient {
             }
         } catch (e: Exception) {
             println("Ошибка при вызове инструмента $toolName: ${e.message}")
+            null
+        }
+    }
+
+
+
+    fun connectWebSocket(webSocketListener: Listener): WebSocket? {
+        return try {
+            val client = HttpClient.newHttpClient()
+            client.newWebSocketBuilder()
+                .buildAsync(URI.create("ws://localhost:8000/websocket"), webSocketListener)
+                .join()
+        } catch (e: Exception) {
+            println("Ошибка при подключении к WebSocket: ${e.message}")
             null
         }
     }

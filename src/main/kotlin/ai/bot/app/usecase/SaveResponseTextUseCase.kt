@@ -2,6 +2,7 @@ package ai.bot.app.usecase
 
 import ai.bot.app.data.repository.ResponsesRepository
 import ai.bot.app.remote.model.OpenAIResponse
+import ai.bot.app.remote.model.TextContent
 import ai.bot.app.remote.usecase.GetOpenAIResponseUseCase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -26,16 +27,13 @@ class SaveResponseTextUseCase(
             val summaryResult = withContext(Dispatchers.IO) {
                 GetOpenAIResponseUseCase(
                     input = summaryPrompt,
-                    previousResponseId = null,
-                    isStoreEnabled = false,
                     temperature = 0.3,
-                    model = "gpt-4o"
                 )
             }
 
             // Сохраняем резюме
             summaryResult.getOrNull()?.let { summary ->
-                summary.output.firstOrNull { it.role == "assistant" }
+                summary.output.filterIsInstance<TextContent>().firstOrNull { it.role == "assistant" }
                     ?.content
                     ?.firstOrNull()
                     ?.text
@@ -46,7 +44,7 @@ class SaveResponseTextUseCase(
         messageText?.let { repository.add(it) }
 
         // Получаем текст ответа от OpenAI
-        val responseText = response.output
+        val responseText = response.output.filterIsInstance<TextContent>()
             .firstOrNull { it.role == "assistant" }
             ?.content
             ?.firstOrNull()

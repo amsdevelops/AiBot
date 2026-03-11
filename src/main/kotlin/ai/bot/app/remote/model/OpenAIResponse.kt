@@ -1,5 +1,6 @@
 package ai.bot.app.remote.model
 
+import com.google.gson.annotations.JsonAdapter
 import com.google.gson.annotations.SerializedName
 
 data class OpenAIResponse(
@@ -17,7 +18,7 @@ data class OpenAIResponse(
     @SerializedName("max_output_tokens") val maxOutputTokens: Any?,
     @SerializedName("max_tool_calls") val maxToolCalls: Any?,
     @SerializedName("model") val model: String,
-    @SerializedName("output") val output: List<Output>,
+    @SerializedName("output") @JsonAdapter(OutputTypeAdapter::class) val output: List<Output>,
     @SerializedName("parallel_tool_calls") val parallelToolCalls: Boolean,
     @SerializedName("presence_penalty") val presencePenalty: Double,
     @SerializedName("previous_response_id") val previousResponseId: Any?,

@@ -8,6 +8,7 @@ mySqlConnector = "8.0.33"
 ktor = "2.3.4"
 kotlinx-serialization = "1.6.0"
 modelcontextprotocol = "0.1.0"
+retrofitKotlinxConverter = "0.8.0"
 
 [libraries]
 # Telegram Bot
@@ -24,4 +25,5 @@ mySqlConnector = { module = "mysql:mysql-connector-java", version.ref = "mySqlCo
 ktor-client-cio = { group = "io.ktor", name = "ktor-client-cio", version.ref = "ktor" }
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinx-serialization" }
 modelcontextprotocol-kotlin-sdk = { group = "io.modelcontextprotocol", name = "kotlin-sdk", version.ref = "modelcontextprotocol" }
+retrofit-kotlinx-serialization-converter = { group = "com.jakewharton.retrofit", name = "retrofit2-kotlinx-serialization-converter", version.ref = "retrofitKotlinxConverter" }
 

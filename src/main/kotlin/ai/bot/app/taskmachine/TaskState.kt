@@ -1,5 +1,6 @@
 package ai.bot.app.taskmachine
 
+import ai.bot.app.remote.model.TextContent
 import ai.bot.app.remote.usecase.GetOpenAIResponseUseCase
 import ai.bot.app.usecase.GetInvariantsUseCase
 import java.util.concurrent.atomic.AtomicReference
@@ -45,12 +46,12 @@ class TaskStateMachine {
         val response = GetOpenAIResponseUseCase(
             input = prompt,
             temperature = temperature,
-            model = selectedModel
+            model = selectedModel,
         )
 
         return when {
             response.isSuccess -> {
-                val planText = response.getOrNull()?.output
+                val planText = response.getOrNull()?.output?.filterIsInstance<TextContent>()
                     ?.firstOrNull { it.role == "assistant" }
                     ?.content
                     ?.firstOrNull()
@@ -93,12 +94,12 @@ class TaskStateMachine {
             val response = GetOpenAIResponseUseCase(
                 input = prompt,
                 temperature = temperature,
-                model = selectedModel
+                model = selectedModel,
             )
 
             return when {
                 response.isSuccess -> {
-                    val result = response.getOrNull()?.output
+                    val result = response.getOrNull()?.output?.filterIsInstance<TextContent>()
                         ?.firstOrNull { it.role == "assistant" }
                         ?.content
                         ?.firstOrNull()
@@ -155,15 +156,16 @@ class TaskStateMachine {
     """.trimIndent()
 
         // Получаем ответ от OpenAI
-        val response = GetOpenAIResponseUseCase(
-            input = prompt,
-            temperature = 0.1, // Более строгий температурный параметр для проверки
-            model = selectedModel
-        )
+        val response = // Более строгий температурный параметр для проверки
+            GetOpenAIResponseUseCase(
+                input = prompt,
+                temperature = 0.1, // Более строгий температурный параметр для проверки
+                model = selectedModel,
+            )
 
         return when {
             response.isSuccess -> {
-                val checkResult = response.getOrNull()?.output
+                val checkResult = response.getOrNull()?.output?.filterIsInstance<TextContent>()
                     ?.firstOrNull { it.role == "assistant" }
                     ?.content
                     ?.firstOrNull()
@@ -191,12 +193,12 @@ class TaskStateMachine {
                     val executionResponse = GetOpenAIResponseUseCase(
                         input = executionPrompt,
                         temperature = temperature,
-                        model = selectedModel
+                        model = selectedModel,
                     )
 
                     when {
                         executionResponse.isSuccess -> {
-                            val newResult = executionResponse.getOrNull()?.output
+                            val newResult = executionResponse.getOrNull()?.output?.filterIsInstance<TextContent>()
                                 ?.firstOrNull { it.role == "assistant" }
                                 ?.content
                                 ?.firstOrNull()

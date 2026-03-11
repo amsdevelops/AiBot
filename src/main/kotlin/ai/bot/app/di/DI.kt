@@ -6,6 +6,7 @@ import ai.bot.app.data.repository.KeyDataRepository
 import ai.bot.app.data.repository.PersonalizedDataRepository
 import ai.bot.app.data.repository.ProfileRepository
 import ai.bot.app.data.repository.ResponsesRepository
+import ai.bot.app.mcp.InvestmentAgentMcpClient
 import ai.bot.app.mcp.WeatherMcpClient
 import ai.bot.app.mcp.WeatherMcpUseCase
 import ai.bot.app.taskmachine.TaskStateMachine
@@ -80,6 +81,7 @@ object DI {
     private val taskStateMachine: TaskStateMachine by lazy { TaskStateMachine() }
     private val weatherMcpClient: WeatherMcpClient by lazy { WeatherMcpClient() }
     private val weatherMcpUseCase: WeatherMcpUseCase by lazy { WeatherMcpUseCase(weatherMcpClient) }
+    private val investmentAgentMcpClient: InvestmentAgentMcpClient by lazy { InvestmentAgentMcpClient() }
 
     val telegramBot: TelegramBot? by lazy {
         GetLocalPropertiesUseCase("BOT_KEY")?.let { key ->
@@ -98,6 +100,7 @@ object DI {
                 getProfileUseCase = getProfileUseCase,
                 taskStateMachine = taskStateMachine,
                 weatherMcpUseCase = weatherMcpUseCase,
+                investmentAgentMcpClient = investmentAgentMcpClient,
                 botToken = key,
             )
         }

@@ -50,6 +50,8 @@ dependencies {
     implementation(libs.ktor.client.cio)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.modelcontextprotocol.kotlin.sdk)
+    implementation(libs.retrofit.kotlinx.serialization.converter)
+
 
     implementation(libs.ktormCore)
     implementation(libs.ktormSupport)

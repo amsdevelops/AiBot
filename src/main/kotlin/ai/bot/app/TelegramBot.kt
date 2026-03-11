@@ -2,9 +2,14 @@ package ai.bot.app
 
 import ai.bot.app.data.model.Profile
 import ai.bot.app.data.model.ProfileType
+import ai.bot.app.mcp.InvestmentAgentMcpClient
 import ai.bot.app.mcp.WeatherMcpUseCase
 import ai.bot.app.menu.StrategyMenu
+import ai.bot.app.remote.model.Message
 import ai.bot.app.remote.model.OpenAIResponse
+import ai.bot.app.remote.model.TextContent
+import ai.bot.app.remote.model.ToolCall
+import ai.bot.app.remote.model.parseArguments
 import ai.bot.app.remote.usecase.GetOpenAIResponseUseCase
 import ai.bot.app.taskmachine.TaskStateMachine
 import ai.bot.app.usecase.AddKeyDataToRequestUseCase
@@ -24,6 +29,8 @@ import ai.bot.app.usecase.SummaryStrategyUseCase
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import org.telegram.telegrambots.bots.TelegramLongPollingBot
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage
 import org.telegram.telegrambots.meta.api.objects.Update
@@ -49,12 +56,13 @@ class TelegramBot(
     private val getProfileUseCase: GetProfileUseCase,
     private val taskStateMachine: TaskStateMachine,
     private val weatherMcpUseCase: WeatherMcpUseCase,
+    private val investmentAgentMcpClient: InvestmentAgentMcpClient,
     botToken: String,
 ) : TelegramLongPollingBot(botToken) {
 
     private val strategyMenu = StrategyMenu()
     private var temperature: Double = 1.0
-    private var selectedModel: String = "gpt-4o"
+    private var selectedModel: String = "gpt-5.2"
     private var currentStrategy: String = "strategy_summary"
     private var isWaitingForPersonalizedData: Boolean = false
     private var selectedProfileType: ProfileType = ProfileType.COMMON
@@ -95,6 +103,7 @@ class TelegramBot(
                         handlePersonalizedData(chatId, text)
                     } else {
                         GlobalScope.launch {
+
                             if (isStateMachine) {
                                 sendTextMessage(chatId, taskStateMachine.processUserInput(text))
                             } else {val profile = getProfileUseCase(selectedProfileType)
@@ -112,10 +121,12 @@ class TelegramBot(
                                 }
                                 val inputWithProfile = buildProfilePrompt(profile, finalInput)
 
-                                val response = GetOpenAIResponseUseCase(
+                                val tools = investmentAgentMcpClient.getTools()
+                                val response = GetOpenAIResponseUseCase.invoke(
                                     input = inputWithProfile,
                                     temperature = temperature,
-                                    model = selectedModel // Используем выбранную модель
+                                    model = selectedModel,
+                                    tools = tools,
                                 )
                                 when (currentStrategy) {
                                     "strategy_summary" -> response.getOrNull()?.let { saveResponseTextUseCase(it, text) }
@@ -131,7 +142,31 @@ class TelegramBot(
                                     }
                                 }
                                 when {
-                                    response.isSuccess -> sendTextMessage(chatId, getContent(response))
+                                    response.isSuccess -> {
+                                        when (val output = response.getOrNull()?.output?.firstOrNull()) {
+                                            is TextContent -> sendTextMessage(chatId, getContent(response))
+                                            is ToolCall -> {
+                                                if (output.name == "get_stock_price") {
+                                                    val text = investmentAgentMcpClient.callTool(
+                                                        toolName = output.name,
+                                                        params = output.arguments.parseArguments()
+                                                    )
+                                                    val response = mapOf(
+                                                        "type" to "function_call_output",
+                                                        "call_id" to output.call_id,
+                                                        "output" to Json.encodeToString(mapOf("stock_price" to text.toString()))
+                                                    )
+                                                    val mcpResponse = Json.encodeToString(response)
+                                                    GetOpenAIResponseUseCase.invoke(
+                                                        input = mcpResponse,
+                                                        temperature = temperature,
+                                                        model = selectedModel,
+                                                    ).let { sendTextMessage(chatId, getContent(it)) }
+                                                }
+                                            }
+                                            else -> { throw IllegalStateException("Unknown output type ${output?.javaClass}") }
+                                        }
+                                    }
                                     response.isFailure -> sendPlainTextMessage(
                                         chatId,
                                         response.exceptionOrNull()?.message ?: ""
@@ -207,7 +242,11 @@ class TelegramBot(
         val responseTime = CalculateResponseTimeUseCase(responseValue)
         val responseTimeInfo = "Response time: $responseTime"
         val modelInfo = "Model: $selectedModel"
-        val content = responseValue.output.firstOrNull { it.role == "assistant" }?.content?.firstOrNull()?.text ?: ""
+        val content = when (val output = responseValue.output.firstOrNull()) {
+            is TextContent -> output.content.firstOrNull()?.text ?: ""
+            is Message -> output.content.firstOrNull()?.text ?: ""
+            else -> ""
+        }
 
         return "$modelInfo\n\n$usageInfo\n\n$inputCostInfo\n$outputCostInfo\n\n$totalCostInfo\n\n$responseTimeInfo\n\n$content"
     }

@@ -40,6 +40,10 @@ import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKe
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.KeyboardButton
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.KeyboardRow
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException
+import java.net.http.WebSocket
+import java.net.http.WebSocket.Listener
+import java.nio.ByteBuffer
+import java.util.concurrent.CompletableFuture
 
 class TelegramBot(
     private val saveResponseTextUseCase: SaveResponseTextUseCase,
@@ -81,6 +85,7 @@ class TelegramBot(
                     GlobalScope.launch { clearResponsesRepositoryUseCase() }
                     sendPlainTextMessage(chatId, "Чат очищен")
                 }
+
                 "/temperature" -> sendChatMessage(chatId)
                 "/model" -> sendModelSelectionMessage(chatId)
                 "/strategy" -> sendStrategyMenu(chatId)
@@ -88,6 +93,7 @@ class TelegramBot(
                     isWaitingForPersonalizedData = true
                     sendPersonalizedTemplate(chatId)
                 }
+
                 "/statemachine" -> isStateMachine = !isStateMachine
                 "/profile" -> sendProfileMenu(chatId)
                 "/weather" -> sendWeatherMcpMessage(chatId)
@@ -106,7 +112,8 @@ class TelegramBot(
 
                             if (isStateMachine) {
                                 sendTextMessage(chatId, taskStateMachine.processUserInput(text))
-                            } else {val profile = getProfileUseCase(selectedProfileType)
+                            } else {
+                                val profile = getProfileUseCase(selectedProfileType)
                                 val personalizedInput = addPersonalizedDataToRequestUseCase(text)
                                 val finalInput = when (currentStrategy) {
                                     "strategy_summary" -> summaryStrategyUseCase(text)
@@ -129,7 +136,9 @@ class TelegramBot(
                                     tools = tools,
                                 )
                                 when (currentStrategy) {
-                                    "strategy_summary" -> response.getOrNull()?.let { saveResponseTextUseCase(it, text) }
+                                    "strategy_summary" -> response.getOrNull()
+                                        ?.let { saveResponseTextUseCase(it, text) }
+
                                     "strategy_sliding_window" -> response.getOrNull()
                                         ?.let { saveMessageSlidingWindowUseCase(it, text) }
 
@@ -144,29 +153,102 @@ class TelegramBot(
                                 when {
                                     response.isSuccess -> {
                                         when (val output = response.getOrNull()?.output?.firstOrNull()) {
+                                            is Message -> sendTextMessage(chatId, getContent(response))
                                             is TextContent -> sendTextMessage(chatId, getContent(response))
                                             is ToolCall -> {
-                                                if (output.name == "get_stock_price") {
-                                                    val text = investmentAgentMcpClient.callTool(
-                                                        toolName = output.name,
-                                                        params = output.arguments.parseArguments()
-                                                    )
-                                                    val response = mapOf(
-                                                        "type" to "function_call_output",
-                                                        "call_id" to output.call_id,
-                                                        "output" to Json.encodeToString(mapOf("stock_price" to text.toString()))
-                                                    )
-                                                    val mcpResponse = Json.encodeToString(response)
-                                                    GetOpenAIResponseUseCase.invoke(
-                                                        input = mcpResponse,
-                                                        temperature = temperature,
-                                                        model = selectedModel,
-                                                    ).let { sendTextMessage(chatId, getContent(it)) }
+                                                when (output.name) {
+                                                    "get_stock_price" -> {
+                                                        val text = investmentAgentMcpClient.callTool(
+                                                            toolName = output.name,
+                                                            params = output.arguments.parseArguments()
+                                                        )
+                                                        val response = mapOf(
+                                                            "type" to "function_call_output",
+                                                            "call_id" to output.call_id,
+                                                            "output" to Json.encodeToString(mapOf("stock_price" to text.toString()))
+                                                        )
+                                                        val mcpResponse = Json.encodeToString(response)
+                                                        GetOpenAIResponseUseCase.invoke(
+                                                            input = mcpResponse,
+                                                            temperature = temperature,
+                                                            model = selectedModel,
+                                                        ).let { sendTextMessage(chatId, getContent(it)) }
+                                                    }
+
+                                                    "set_delay" -> {
+                                                        val text = investmentAgentMcpClient.callTool(
+                                                            toolName = output.name,
+                                                            params = output.arguments.parseArguments()
+                                                        )
+                                                        investmentAgentMcpClient.connectWebSocket(
+                                                            object : Listener {
+                                                                override fun onOpen(webSocket: WebSocket) {
+                                                                    println("WebSocket opened")
+                                                                    webSocket.request(1)
+                                                                }
+
+                                                                override fun onText(
+                                                                    webSocket: WebSocket,
+                                                                    data: CharSequence,
+                                                                    last: Boolean
+                                                                ): CompletableFuture<*> {
+                                                                    println("Received text: $data")
+                                                                    if (data.contains("finished")) {
+                                                                        val response = mapOf(
+                                                                            "type" to "function_call_output",
+                                                                            "call_id" to output.call_id,
+                                                                            "output" to Json.encodeToString(mapOf("delay_completed" to text.toString()))
+                                                                        )
+                                                                        val mcpResponse = Json.encodeToString(response)
+                                                                        GlobalScope.launch {
+                                                                            GetOpenAIResponseUseCase.invoke(
+                                                                                input = mcpResponse,
+                                                                                temperature = temperature,
+                                                                                model = selectedModel,
+                                                                            ).let { sendTextMessage(chatId, getContent(it)) }
+                                                                        }
+                                                                    }
+                                                                    webSocket.request(1)
+                                                                    return CompletableFuture.completedFuture(null)
+                                                                }
+
+                                                                override fun onBinary(
+                                                                    webSocket: WebSocket,
+                                                                    data: ByteBuffer,
+                                                                    last: Boolean
+                                                                ): CompletableFuture<*> {
+                                                                    println("Received binary data")
+                                                                    webSocket.request(1)
+                                                                    return CompletableFuture.completedFuture(null)
+                                                                }
+
+                                                                override fun onError(
+                                                                    webSocket: WebSocket,
+                                                                    error: Throwable
+                                                                ) {
+                                                                    println("WebSocket error: ${error.message}")
+                                                                }
+
+                                                                override fun onClose(
+                                                                    webSocket: WebSocket,
+                                                                    statusCode: Int,
+                                                                    reason: String
+                                                                ): CompletableFuture<*> {
+                                                                    println("WebSocket closed: $statusCode - $reason")
+                                                                    return CompletableFuture.completedFuture(null)
+                                                                }
+                                                            }
+                                                        )
+                                                    }
                                                 }
                                             }
-                                            else -> { throw IllegalStateException("Unknown output type ${output?.javaClass}") }
+
+                                            else -> {
+                                                throw IllegalStateException("Unknown output type ${output?.javaClass}")
+                                            }
                                         }
                                     }
+
                                     response.isFailure -> sendPlainTextMessage(
                                         chatId,
                                         response.exceptionOrNull()?.message ?: ""
